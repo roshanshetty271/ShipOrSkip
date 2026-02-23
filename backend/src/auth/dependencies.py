@@ -1,8 +1,11 @@
 from fastapi import Depends, HTTPException, Header
 from typing import Optional
+import logging
 import httpx
 
 from src.config import get_settings, Settings
+
+logger = logging.getLogger(__name__)
 
 
 async def get_current_user(
@@ -19,17 +22,36 @@ async def get_current_user(
         return None
 
     try:
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=5.0) as client:
             resp = await client.get(
                 f"{settings.supabase_url}/auth/v1/user",
-                headers={"Authorization": f"Bearer {token}", "apikey": settings.supabase_service_key},
-                timeout=5.0,
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "apikey": settings.supabase_service_key,
+                },
             )
             if resp.status_code == 200:
                 return resp.json()
-    except Exception:
-        pass
-    return None
+            elif resp.status_code == 401:
+                return None  # Expired/invalid token — treat as anonymous
+            else:
+                logger.warning(f"Supabase auth returned {resp.status_code}: {resp.text[:200]}")
+                return None
+    except httpx.ConnectError:
+        logger.error("Cannot connect to Supabase — project may be paused or URL is wrong")
+        raise HTTPException(
+            status_code=503,
+            detail="Authentication service is temporarily unavailable. Please try again later."
+        )
+    except httpx.TimeoutException:
+        logger.error("Supabase auth request timed out")
+        raise HTTPException(
+            status_code=503,
+            detail="Authentication service timed out. Please try again."
+        )
+    except Exception as e:
+        logger.error(f"Unexpected auth error: {e}")
+        return None
 
 
 async def require_auth(

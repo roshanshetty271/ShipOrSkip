@@ -4,14 +4,48 @@
 
 @import url('https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&display=swap');
 
+:root {
+  --font-display: 'Instrument Serif', Georgia, serif;
+  --font-body: var(--font-sans), system-ui, sans-serif;
+  --font-mono: var(--font-mono), monospace;
+
+  /* Color Palette */
+  --bg: #fafaf8;
+  --bg-raised: #ffffff;
+  --bg-sunken: #f4f4f0;
+  --text-primary: #111110;
+  --text-secondary: #737373;
+  --text-tertiary: #a3a3a0;
+  --accent: #d84040;
+  --border: #e8e8e4;
+  --border-strong: #d1d1cc;
+}
+
 @layer base {
   html {
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
   }
 
   body {
-    @apply bg-white text-ink font-sans;
+    @apply bg-background text-primary font-sans;
+    background-color: var(--bg);
+    color: var(--text-primary);
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    font-family: var(--font-display);
+    text-wrap: balance;
+  }
+
+  p {
+    text-wrap: pretty;
   }
 
   ::selection {
@@ -20,15 +54,94 @@
 }
 
 @layer components {
+
+  /* Buttons — minimal, strict, intentional */
   .btn-primary {
-    @apply inline-flex items-center justify-center px-5 py-2.5 text-sm font-medium bg-ink text-white rounded-lg transition-all duration-200 hover:bg-ink-800 active:scale-[0.98];
+    @apply inline-flex items-center justify-center px-6 py-2.5 text-sm font-medium bg-ink-900 text-white rounded-[2px] transition-all duration-200;
+  }
+
+  .btn-primary:hover {
+    @apply opacity-80;
+  }
+
+  .btn-primary:active {
+    @apply scale-[0.99];
+  }
+
+  .btn-primary:disabled {
+    @apply opacity-30 cursor-not-allowed;
   }
 
   .btn-secondary {
-    @apply inline-flex items-center justify-center px-5 py-2.5 text-sm font-medium bg-ink-50 text-ink border border-ink-100 rounded-lg transition-all duration-200 hover:bg-ink-100 active:scale-[0.98];
+    @apply inline-flex items-center justify-center px-6 py-2.5 text-sm font-medium bg-transparent text-ink border border-border-strong rounded-[2px] transition-all duration-200 relative overflow-hidden z-10;
   }
 
+  .btn-secondary::before {
+    content: '';
+    @apply absolute inset-0 bg-ink-900 transition-transform duration-[220ms] ease-out z-[-1] scale-x-0 origin-right;
+  }
+
+  .btn-secondary:hover {
+    @apply text-white border-ink-900;
+  }
+
+  .btn-secondary:hover::before {
+    @apply scale-x-100 origin-left;
+  }
+
+  .btn-secondary:active {
+    @apply scale-[0.99];
+  }
+
+  .btn-secondary:disabled {
+    @apply opacity-50 cursor-not-allowed pointer-events-none;
+  }
+
+  /* Bottom-border input — signals craft */
   .input-field {
-    @apply w-full px-4 py-3 text-sm bg-white border border-ink-200 rounded-lg placeholder:text-ink-300 focus:outline-none focus:border-ink-900 focus:ring-1 focus:ring-ink-900 transition-all duration-200;
+    @apply w-full px-0 py-3 text-base bg-transparent border-0 border-b border-border-strong rounded-none placeholder:text-text-tertiary focus:outline-none focus:border-accent focus:ring-0 transition-all duration-150;
+  }
+
+  /* Cards — background shift instead of shadow */
+  .card-minimal {
+    @apply p-8 border border-border bg-background-raised rounded-[4px];
+  }
+
+  /* Container architecture */
+  .layout-container {
+    @apply w-full max-w-[1200px] mx-auto;
+    padding-inline: clamp(1.5rem, 5vw, 4rem);
+  }
+
+  .section-padding {
+    padding-block: clamp(5rem, 10vw, 9rem);
+  }
+}
+
+/* Fluid Typography Utilities */
+@layer utilities {
+  .text-fluid-display {
+    font-size: clamp(2.5rem, 4.5vw + 1rem, 3.75rem);
+    line-height: 1.05;
+    letter-spacing: -0.02em;
+    font-weight: 400;
+  }
+
+  .text-fluid-title {
+    font-size: clamp(1.75rem, 3vw + 0.5rem, 2.5rem);
+    line-height: 1.05;
+    letter-spacing: -0.02em;
+  }
+
+  .text-fluid-heading {
+    font-size: clamp(1.25rem, 2vw + 0.5rem, 2rem);
+    line-height: 1.15;
+    letter-spacing: -0.02em;
+    font-weight: 500;
+  }
+
+  .text-fluid-lead {
+    font-size: clamp(1.1rem, 1.5vw + 0.5rem, 1.4rem);
+    line-height: 1.55;
   }
 }

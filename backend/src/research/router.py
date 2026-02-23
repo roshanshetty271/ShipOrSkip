@@ -2,7 +2,6 @@ import json
 import logging
 from datetime import date
 from typing import Optional
-from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
@@ -10,29 +9,39 @@ from fastapi.responses import StreamingResponse
 from src.middleware import limiter
 from src.research.schemas import AnalyzeRequest
 from src.research.service import fast_analysis, deep_research_stream
-from src.auth.dependencies import get_current_user, require_auth
+from src.auth.dependencies import get_current_user
 from src.auth.service import verify_turnstile
 from src.config import get_settings, get_supabase_client, Settings
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+# Test keys that should always be skipped
+_TURNSTILE_TEST_KEYS = {
+    "",
+    "1x0000000000000000000000000000000AA",
+    "1x00000000000000000000AA",
+}
+
 
 async def _check_turnstile(token: Optional[str], settings: Settings):
-    """Verify Turnstile token if configured."""
-    if settings.turnstile_secret_key and settings.turnstile_secret_key != "1x0000000000000000000000000000000AA":
-        if not token:
-            raise HTTPException(status_code=400, detail="Bot verification required")
-        valid = await verify_turnstile(token, settings.turnstile_secret_key)
-        if not valid:
-            raise HTTPException(status_code=403, detail="Bot verification failed")
+    """Verify Turnstile token. Skips if using test key or not configured."""
+    secret = settings.turnstile_secret_key.strip()
+    if not secret or secret in _TURNSTILE_TEST_KEYS:
+        return  # Dev mode — skip verification
+
+    if not token:
+        raise HTTPException(status_code=400, detail="Bot verification required")
+    valid = await verify_turnstile(token, secret)
+    if not valid:
+        raise HTTPException(status_code=403, detail="Bot verification failed")
 
 
 async def _check_deep_limit(user: Optional[dict], settings: Settings):
     """Enforce daily deep research limits."""
     sb = get_supabase_client()
     if not sb or not user:
-        return  # Anonymous gets 2/day tracked by IP (via slowapi)
+        return
 
     uid = user["id"]
     try:
@@ -43,7 +52,6 @@ async def _check_deep_limit(user: Optional[dict], settings: Settings):
         data = profile.data
         today = date.today().isoformat()
 
-        # Reset counter if new day
         if data.get("last_reset_date") != today:
             sb.table("profiles").update({"deep_research_count": 0, "last_reset_date": today}).eq("id", uid).execute()
             return
@@ -57,8 +65,31 @@ async def _check_deep_limit(user: Optional[dict], settings: Settings):
         logger.warning(f"Could not check deep limit: {e}")
 
 
-async def _save_research(user: Optional[dict], idea: str, category: Optional[str], analysis_type: str, result: dict):
-    """Persist research result to Supabase."""
+async def _check_concurrent_research(user: Optional[dict]):
+    """Prevent user from running multiple deep researches simultaneously."""
+    sb = get_supabase_client()
+    if not sb or not user:
+        return
+
+    try:
+        result = sb.table("research") \
+            .select("id") \
+            .eq("user_id", user["id"]) \
+            .eq("status", "processing") \
+            .execute()
+        if result.data and len(result.data) > 0:
+            raise HTTPException(
+                status_code=409,
+                detail="You already have a deep research in progress. Please wait for it to complete."
+            )
+    except HTTPException:
+        raise
+    except Exception:
+        pass
+
+
+async def _save_research(user: Optional[dict], idea: str, category: Optional[str], analysis_type: str, result: dict, status: str = "completed") -> Optional[str]:
+    """Persist research result to Supabase. Returns None silently if DB unavailable."""
     sb = get_supabase_client()
     if not sb or not user:
         return None
@@ -70,12 +101,27 @@ async def _save_research(user: Optional[dict], idea: str, category: Optional[str
             "category": category,
             "analysis_type": analysis_type,
             "result": result,
-            "status": "completed",
+            "status": status,
         }).execute()
         return record.data[0]["id"] if record.data else None
     except Exception as e:
         logger.warning(f"Could not save research: {e}")
         return None
+
+
+async def _update_research_status(research_id: Optional[str], status: str, result: Optional[dict] = None):
+    """Update a research record's status."""
+    sb = get_supabase_client()
+    if not sb or not research_id:
+        return
+
+    try:
+        update = {"status": status}
+        if result is not None:
+            update["result"] = result
+        sb.table("research").update(update).eq("id", research_id).execute()
+    except Exception as e:
+        logger.warning(f"Could not update research status: {e}")
 
 
 async def _increment_deep_count(user: Optional[dict]):
@@ -86,7 +132,6 @@ async def _increment_deep_count(user: Optional[dict]):
     try:
         sb.rpc("increment_deep_count", {"user_id_input": user["id"]}).execute()
     except Exception:
-        # Fallback: direct update
         try:
             profile = sb.table("profiles").select("deep_research_count").eq("id", user["id"]).single().execute()
             current = profile.data.get("deep_research_count", 0) if profile.data else 0
@@ -101,7 +146,7 @@ async def analyze_fast(
     request: Request,
     req: AnalyzeRequest,
     settings: Settings = Depends(get_settings),
-    user: dict = Depends(require_auth),
+    user: Optional[dict] = Depends(get_current_user),
 ):
     if not settings.openai_api_key:
         raise HTTPException(status_code=503, detail="OpenAI API key not configured")
@@ -110,9 +155,12 @@ async def analyze_fast(
 
     try:
         result = await fast_analysis(req.idea, req.category, settings)
+        # Save is best-effort — never blocks the response
         await _save_research(user, req.idea, req.category, "fast", result)
         return result
-    except Exception as e:
+    except HTTPException:
+        raise
+    except Exception:
         logger.exception("Fast analysis failed")
         raise HTTPException(status_code=500, detail="Analysis failed. Please try again.")
 
@@ -123,13 +171,16 @@ async def analyze_deep(
     request: Request,
     req: AnalyzeRequest,
     settings: Settings = Depends(get_settings),
-    user: dict = Depends(require_auth),
+    user: Optional[dict] = Depends(get_current_user),
 ):
     if not settings.openai_api_key:
         raise HTTPException(status_code=503, detail="OpenAI API key not configured")
 
     await _check_turnstile(req.turnstile_token, settings)
     await _check_deep_limit(user, settings)
+    await _check_concurrent_research(user)
+
+    research_id = await _save_research(user, req.idea, req.category, "deep", {}, status="processing")
 
     final_result = {}
 
@@ -137,17 +188,23 @@ async def analyze_deep(
         nonlocal final_result
         try:
             async for event_type, data in deep_research_stream(req.idea, req.category, settings):
+                if await request.is_disconnected():
+                    logger.info(f"Client disconnected during deep research {research_id}")
+                    await _update_research_status(research_id, "failed", {"error": "Client disconnected"})
+                    return
+
                 if event_type == "done":
                     final_result = data.get("report", data)
                 yield f"event: {event_type}\ndata: {json.dumps(data)}\n\n"
-        except Exception as e:
+        except Exception:
             logger.exception("Deep research stream failed")
             yield f'event: error\ndata: {json.dumps({"message": "Research failed. Please try again."})}\n\n'
         finally:
-            # Save result + increment counter after stream completes
             if final_result:
-                await _save_research(user, req.idea, req.category, "deep", final_result)
+                await _update_research_status(research_id, "completed", final_result)
                 await _increment_deep_count(user)
+            elif research_id:
+                await _update_research_status(research_id, "failed")
 
     return StreamingResponse(
         event_stream(),
@@ -164,9 +221,8 @@ async def analyze_deep(
 async def get_research_history(
     user: dict = Depends(get_current_user),
 ):
-    """Get user's research history."""
     if not user:
-        raise HTTPException(status_code=401, detail="Authentication required")
+        return {"research": []}
 
     sb = get_supabase_client()
     if not sb:
@@ -187,10 +243,9 @@ async def get_research_history(
 
 @router.get("/research/{research_id}")
 async def get_research_detail(
-    research_id: UUID,
+    research_id: str,
     user: dict = Depends(get_current_user),
 ):
-    """Get a specific research result."""
     if not user:
         raise HTTPException(status_code=401, detail="Authentication required")
 

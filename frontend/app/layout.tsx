@@ -1,6 +1,5 @@
 import type { Metadata, Viewport } from "next";
 import { DM_Sans, JetBrains_Mono } from "next/font/google";
-import localFont from "next/font/local";
 import "./globals.css";
 
 const dmSans = DM_Sans({
@@ -14,9 +13,6 @@ const jetbrainsMono = JetBrains_Mono({
   variable: "--font-mono",
   display: "swap",
 });
-
-// Instrument Serif isn't in next/font/google, load via CSS
-// (kept in globals.css as single @import — only this one font)
 
 export const metadata: Metadata = {
   title: "ShipOrSkip — Validate your ideas before you build",

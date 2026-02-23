@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowRight, Zap, Search, Clock } from "lucide-react";
 import Link from "next/link";
+import TextareaAutosize from 'react-textarea-autosize';
 
 export default function Home() {
   const [idea, setIdea] = useState("");
@@ -16,76 +17,86 @@ export default function Home() {
     router.push(`/appgroup/dashboard?idea=${encoded}`);
   };
 
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleAnalyze(e as unknown as React.FormEvent);
+    }
+  };
+
   return (
     <div className="min-h-screen">
       {/* Nav */}
-      <nav className="fixed top-0 w-full z-50 bg-white/80 backdrop-blur-sm border-b border-ink-100">
-        <div className="max-w-5xl mx-auto px-6 h-14 flex items-center justify-between">
-          <Link href="/" className="font-display text-xl italic">ShipOrSkip</Link>
-          <div className="flex items-center gap-4">
-            <Link href="/appgroup/dashboard" className="text-sm text-ink-400 hover:text-ink transition-colors">Dashboard</Link>
-            <Link href="/auth/login" className="btn-primary text-xs py-2 px-4">Sign in</Link>
+      <nav className="fixed top-0 w-full z-50 bg-background/80 backdrop-blur-sm border-b border-border">
+        <div className="layout-container h-16 flex items-center justify-between">
+          <Link href="/" className="font-display text-2xl tracking-normal">
+            <span className="text-green-600">Ship</span>Or<span className="text-accent">Skip</span>
+          </Link>
+          <div className="flex items-center gap-6">
+            <Link href="/appgroup/dashboard" className="text-sm font-medium text-secondary hover:text-primary transition-colors">Dashboard</Link>
+            <Link href="/auth/login" className="btn-primary text-xs py-2 px-5">Sign in</Link>
           </div>
         </div>
       </nav>
 
       {/* Hero */}
-      <section className="pt-32 pb-20 px-6">
-        <div className="max-w-2xl mx-auto text-center">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-ink-50 border border-ink-100 text-2xs font-medium text-ink-500 uppercase tracking-widest mb-8">
-            <span className="w-1.5 h-1.5 rounded-full bg-accent" />
-            Idea validation engine
-          </div>
+      <section className="pt-24 pb-12 lg:pt-32 lg:pb-16">
+        <div className="layout-container flex flex-col items-center text-center">
+          <div className="w-full max-w-[800px]">
+            <h1 className="text-fluid-display mb-6 tracking-tight">
+              Should you <span className="italic text-green-600 pr-0.5">ship</span> it
+              <br />
+              or <span className="italic text-accent pr-0.5">skip</span> it?
+            </h1>
 
-          <h1 className="font-display text-5xl sm:text-6xl md:text-7xl leading-[0.95] tracking-tight mb-6">
-            Should you
-            <span className="italic text-accent"> ship it</span>
-            <br />
-            or skip it?
-          </h1>
+            <p className="text-xl text-secondary max-w-[50ch] mx-auto mb-12">
+              Validate your idea before writing a single line of code. Get instant competitor analysis, market feedback, and a technical execution plan.
+            </p>
 
-          <p className="text-ink-400 text-lg max-w-md mx-auto mb-12 leading-relaxed">
-            Stop guessing. Get AI-powered competitive intelligence, honest pros & cons, and a concrete build plan — in under a minute.
-          </p>
-
-          <form onSubmit={handleAnalyze} className="max-w-lg mx-auto">
-            <div className="relative">
-              <textarea
-                value={idea}
-                onChange={(e) => setIdea(e.target.value.slice(0, 500))}
-                placeholder="Describe your idea in a few sentences..."
-                rows={3}
-                className="input-field pr-20 resize-none"
-              />
-              <div className="absolute bottom-3 right-3 flex items-center gap-2">
-                <span className="text-2xs text-ink-300 tabular-nums">{idea.length}/500</span>
-                <button
-                  type="submit"
-                  disabled={!idea.trim()}
-                  className="btn-primary py-1.5 px-3 text-xs disabled:opacity-30 disabled:pointer-events-none"
-                >
-                  Analyze <ArrowRight className="w-3 h-3 ml-1" />
-                </button>
+            <form onSubmit={handleAnalyze} className="w-full max-w-[620px] mx-auto text-left relative">
+              <div className="flex items-end gap-3 border-b border-border-strong group hover:border-accent focus-within:border-accent transition-all duration-300 pb-3">
+                <TextareaAutosize
+                  value={idea}
+                  onChange={(e) => setIdea(e.target.value.slice(0, 500))}
+                  onKeyDown={handleKeyDown}
+                  placeholder="Describe your idea in a few sentences..."
+                  minRows={1}
+                  maxRows={5}
+                  className="flex-grow bg-transparent resize-none focus:outline-none text-base placeholder:text-text-tertiary leading-relaxed pt-2 break-all"
+                />
+                <div className="flex items-center gap-4 shrink-0 pb-0.5">
+                  <span className="text-xs text-text-tertiary tabular-nums">{idea.length}/500</span>
+                  <button
+                    type="submit"
+                    disabled={!idea.trim()}
+                    className="btn-primary py-2 px-4 disabled:opacity-30 disabled:pointer-events-none"
+                  >
+                    Analyze <ArrowRight className="w-3.5 h-3.5 ml-2" />
+                  </button>
+                </div>
               </div>
-            </div>
-          </form>
+            </form>
+          </div>
         </div>
       </section>
 
       {/* How it works */}
-      <section className="py-20 px-6 border-t border-ink-100">
-        <div className="max-w-3xl mx-auto">
-          <p className="text-2xs font-medium text-ink-300 uppercase tracking-widest mb-10 text-center">How it works</p>
-          <div className="grid md:grid-cols-3 gap-12">
+      <section className="section-padding border-t border-border bg-background-sunken/30">
+        <div className="layout-container">
+          <div className="mb-16">
+            <h2 className="text-fluid-title">How it works</h2>
+          </div>
+          <div className="grid md:grid-cols-3 gap-12 lg:gap-20">
             {[
               { step: "01", title: "Describe your idea", desc: "Plain language. No pitch deck needed." },
               { step: "02", title: "AI researches the market", desc: "Searches across the web, Product Hunt, and GitHub." },
               { step: "03", title: "Get your verdict", desc: "Competitors, gaps, pros/cons, and a build plan." },
             ].map((item) => (
-              <div key={item.step}>
-                <p className="font-mono text-2xs text-ink-300 mb-3">{item.step}</p>
-                <h3 className="text-base font-semibold mb-2">{item.title}</h3>
-                <p className="text-sm text-ink-400 leading-relaxed">{item.desc}</p>
+              <div key={item.step} className="group cursor-default">
+                <p className="font-mono text-3xl font-light text-text-tertiary mb-6 transition-colors group-hover:text-primary">{item.step}</p>
+                <div className="h-[1px] w-full bg-border mb-6 transition-colors group-hover:bg-primary" />
+                <h3 className="text-lg font-medium mb-3">{item.title}</h3>
+                <p className="text-secondary text-base leading-relaxed">{item.desc}</p>
               </div>
             ))}
           </div>
@@ -93,38 +104,36 @@ export default function Home() {
       </section>
 
       {/* Two modes */}
-      <section className="py-20 px-6 bg-ink-50">
-        <div className="max-w-3xl mx-auto">
-          <p className="text-2xs font-medium text-ink-300 uppercase tracking-widest mb-10 text-center">Two analysis modes</p>
-          <div className="grid md:grid-cols-2 gap-6">
-            <div className="bg-white p-8 rounded-xl border border-ink-100">
-              <div className="flex items-center gap-3 mb-4">
-                <div className="w-8 h-8 rounded-lg bg-ink-50 flex items-center justify-center">
-                  <Zap className="w-4 h-4 text-ink-500" />
-                </div>
-                <h3 className="font-semibold">Fast Analysis</h3>
+      <section className="section-padding bg-background-raised border-t border-border">
+        <div className="layout-container">
+          <div className="mb-16">
+            <h2 className="text-fluid-title">Two analysis modes</h2>
+          </div>
+          <div className="grid md:grid-cols-2 gap-8 lg:gap-12">
+            <div className="card-minimal flex flex-col items-start hover:border-border-strong transition-colors">
+              <div className="w-10 h-10 rounded-[2px] bg-background-sunken flex items-center justify-center mb-8 border border-border">
+                <Zap className="w-4 h-4 text-secondary" />
               </div>
-              <p className="text-sm text-ink-400 leading-relaxed mb-4">
+              <h3 className="text-xl font-medium mb-3">Fast Analysis</h3>
+              <p className="text-base text-secondary leading-relaxed mb-10 flex-grow">
                 Quick validation in 10-15 seconds. Single AI call with web search. Perfect for a gut check.
               </p>
-              <div className="flex items-center gap-4 text-2xs text-ink-300">
-                <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> ~15 sec</span>
+              <div className="flex items-center gap-6 text-xs text-secondary font-mono bg-background px-4 py-2 border border-border rounded-[2px] w-full">
+                <span className="flex items-center gap-2"><Clock className="w-3.5 h-3.5" /> ~15 sec</span>
                 <span>Unlimited</span>
               </div>
             </div>
 
-            <div className="bg-white p-8 rounded-xl border border-ink-900">
-              <div className="flex items-center gap-3 mb-4">
-                <div className="w-8 h-8 rounded-lg bg-ink flex items-center justify-center">
-                  <Search className="w-4 h-4 text-white" />
-                </div>
-                <h3 className="font-semibold">Deep Research</h3>
+            <div className="card-minimal flex flex-col items-start border-primary/20 hover:border-primary transition-colors">
+              <div className="w-10 h-10 rounded-[2px] bg-primary flex items-center justify-center mb-8">
+                <Search className="w-4 h-4 text-background" />
               </div>
-              <p className="text-sm text-ink-400 leading-relaxed mb-4">
+              <h3 className="text-xl font-medium mb-3">Deep Research</h3>
+              <p className="text-base text-secondary leading-relaxed mb-10 flex-grow">
                 Multi-agent competitive intelligence. Parallel search across Tavily, Product Hunt, and GitHub.
               </p>
-              <div className="flex items-center gap-4 text-2xs text-ink-300">
-                <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> ~60 sec</span>
+              <div className="flex items-center gap-6 text-xs text-secondary font-mono bg-background px-4 py-2 border border-border rounded-[2px] w-full">
+                <span className="flex items-center gap-2"><Clock className="w-3.5 h-3.5" /> ~60 sec</span>
                 <span>4/day free</span>
               </div>
             </div>
@@ -133,9 +142,11 @@ export default function Home() {
       </section>
 
       {/* Footer */}
-      <footer className="py-12 px-6 border-t border-ink-100">
-        <div className="max-w-3xl mx-auto flex items-center justify-between text-2xs text-ink-300">
-          <span className="font-display text-sm italic text-ink-500">ShipOrSkip</span>
+      <footer className="py-12 border-t border-border">
+        <div className="layout-container flex items-center justify-between text-xs text-secondary font-mono">
+          <span className="font-display text-sm tracking-normal">
+            <span className="text-green-600">Ship</span>Or<span className="text-accent">Skip</span>
+          </span>
           <span>Built by Roshan · 2026</span>
         </div>
       </footer>

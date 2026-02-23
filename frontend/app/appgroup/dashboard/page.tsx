@@ -2,37 +2,57 @@
 
 import { useState, useEffect, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
-import { ArrowRight, Zap, Search, ChevronRight, Clock, RotateCcw } from "lucide-react";
+import {
+  ArrowRight,
+  Zap,
+  Search,
+  ChevronRight,
+  RotateCcw,
+} from "lucide-react";
 import Link from "next/link";
 import { useAuth } from "@/hooks/use-auth";
-import { analyzeFast, analyzeDeepStream, getResearchHistory } from "@/services/api";
+import {
+  analyzeFast,
+  analyzeDeepStream,
+  getResearchHistory,
+} from "@/services/api";
+import { Turnstile } from "@marsidev/react-turnstile";
+import TextareaAutosize from 'react-textarea-autosize';
 
 interface ResearchItem {
   id: string;
   idea_text: string;
   analysis_type: string;
+  status: string;
   created_at: string;
+}
+
+interface CompetitorItem {
+  name: string;
+  description: string;
+  differentiator?: string;
+  url?: string;
 }
 
 function DashboardContent() {
   const searchParams = useSearchParams();
-  const prefilled = searchParams.get("idea") || "";
   const router = useRouter();
+  const prefilled = searchParams.get("idea") || "";
   const { user, loading: authLoading, signOut } = useAuth();
 
   const [idea, setIdea] = useState(prefilled);
   const [mode, setMode] = useState<"fast" | "deep">("fast");
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<any>(null);
+  const [result, setResult] = useState<Record<string, unknown> | null>(null);
   const [progress, setProgress] = useState("");
   const [error, setError] = useState("");
+  const [token, setToken] = useState<string>("");
 
   // Research history
   const [history, setHistory] = useState<ResearchItem[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
 
-  // Load history on mount if authenticated
   useEffect(() => {
     if (user && !authLoading) {
       loadHistory();
@@ -45,6 +65,7 @@ function DashboardContent() {
       const items = await getResearchHistory();
       setHistory(items);
     } catch {
+      // silently fail — history is non-critical
     } finally {
       setHistoryLoading(false);
     }
@@ -52,98 +73,169 @@ function DashboardContent() {
 
   const handleAnalyze = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!idea.trim()) return;
+    if (!idea.trim() || loading) return;
+
+    if (!token) {
+      setError("Please complete verification");
+      return;
+    }
+
     setLoading(true);
-    setResult(null);
     setError("");
-    setProgress("Starting analysis...");
 
     try {
       if (mode === "deep") {
         await analyzeDeepStream(
           idea,
           null,
-          (msg) => setProgress(msg),
-          (data) => { setResult(data); setLoading(false); if (user) loadHistory(); },
-          (err) => { setError(err); setLoading(false); },
+          (msg: string) => setProgress(msg),
+          (data: Record<string, unknown>) => {
+            setResult(data);
+            setLoading(false);
+            if (user) loadHistory();
+          },
+          (err: string) => {
+            setError(err);
+            setLoading(false);
+          },
+          token
         );
-        return; // callbacks handle setLoading
+        return;
       } else {
-        const data = await analyzeFast(idea);
+        const data = await analyzeFast(idea, undefined, token);
         setResult(data);
         if (user) loadHistory();
       }
-    } catch (err: any) {
-      setError(err.message || "Analysis failed. Please try again.");
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error ? err.message : "Analysis failed. Please try again.";
+      setError(message);
     } finally {
       setLoading(false);
     }
   };
 
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleAnalyze(e as unknown as React.FormEvent);
+    }
+  };
+
+  const getField = (key: string): unknown[] => {
+    if (!result) return [];
+    const direct = result[key];
+    const fromReport =
+      result.report && typeof result.report === "object"
+        ? (result.report as Record<string, unknown>)[key]
+        : undefined;
+    const val = direct || fromReport;
+    return Array.isArray(val) ? val : [];
+  };
+
+  const getVerdict = (): string => {
+    if (!result) return "";
+    const direct = result.verdict;
+    const fromReport =
+      result.report && typeof result.report === "object"
+        ? (result.report as Record<string, unknown>).verdict
+        : undefined;
+    return (direct as string) || (fromReport as string) || "Analysis complete.";
+  };
+
+  const competitors = getField("competitors") as CompetitorItem[];
+  const gaps = getField("gaps") as string[];
+  const pros = getField("pros") as string[];
+  const cons = getField("cons") as string[];
+  const buildPlan = getField("build_plan") as string[];
+
   const initials = user?.email ? user.email[0].toUpperCase() : "?";
 
   return (
-    <div className="min-h-screen bg-ink-50">
+    <div className="min-h-screen bg-background">
       {/* Header */}
-      <header className="bg-white border-b border-ink-100">
-        <div className="max-w-5xl mx-auto px-6 h-14 flex items-center justify-between">
-          <Link href="/" className="font-display text-lg italic">ShipOrSkip</Link>
-          <div className="flex items-center gap-3">
+      <header className="bg-background-raised border-b border-border sticky top-0 z-40">
+        <div className="layout-container h-16 flex items-center justify-between">
+          <Link href="/" className="font-display text-2xl tracking-normal">
+            <span className="text-green-600">Ship</span>Or<span className="text-accent">Skip</span>
+          </Link>
+          <div className="flex items-center gap-6">
             {user && (
               <button
                 onClick={() => setShowHistory(!showHistory)}
-                className={`text-xs transition-colors ${showHistory ? "text-ink font-medium" : "text-ink-400 hover:text-ink"}`}
+                className={`text-sm transition-colors ${showHistory
+                  ? "text-primary font-medium"
+                  : "text-secondary hover:text-primary"
+                  }`}
               >
                 History
               </button>
             )}
             {user ? (
-              <div className="flex items-center gap-2">
-                <div className="w-7 h-7 rounded-full bg-ink flex items-center justify-center text-2xs font-medium text-white">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-[2px] bg-ink-900 flex items-center justify-center text-xs font-mono text-white">
                   {initials}
                 </div>
-                <button onClick={signOut} className="text-2xs text-ink-300 hover:text-ink">Sign out</button>
+                <button
+                  onClick={signOut}
+                  className="text-xs text-secondary hover:text-primary transition-colors"
+                >
+                  Sign out
+                </button>
               </div>
             ) : (
-              <Link href="/auth/login" className="btn-primary text-xs py-1.5 px-3">Sign in</Link>
+              <Link href="/auth/login" className="btn-primary text-xs py-2 px-5">
+                Sign in
+              </Link>
             )}
           </div>
         </div>
       </header>
 
-      <div className="max-w-5xl mx-auto px-6 py-10 flex gap-8">
+      <div className="layout-container py-12 flex gap-12">
         {/* Sidebar — Research History */}
         {showHistory && user && (
-          <aside className="w-64 shrink-0 hidden lg:block">
-            <div className="flex items-center justify-between mb-4">
-              <p className="text-2xs font-medium text-ink-300 uppercase tracking-widest">Past Research</p>
-              <button onClick={loadHistory} className="text-ink-300 hover:text-ink">
-                <RotateCcw className="w-3 h-3" />
+          <aside className="w-72 shrink-0 hidden lg:block">
+            <div className="flex items-center justify-between mb-6">
+              <p className="text-xs font-mono text-secondary uppercase tracking-widest">
+                Past Research
+              </p>
+              <button onClick={loadHistory} className="text-secondary hover:text-primary transition-colors">
+                <RotateCcw className="w-3.5 h-3.5" />
               </button>
             </div>
             {historyLoading ? (
-              <div className="space-y-3">
-                {[1,2,3].map(i => <div key={i} className="h-16 bg-white rounded-lg border border-ink-100 animate-pulse" />)}
+              <div className="space-y-4">
+                {[1, 2, 3].map((i) => (
+                  <div
+                    key={i}
+                    className="h-20 bg-background-raised rounded-[2px] border border-border animate-pulse"
+                  />
+                ))}
               </div>
             ) : history.length === 0 ? (
-              <p className="text-xs text-ink-300">No research yet. Analyze an idea to get started.</p>
+              <p className="text-sm text-secondary">
+                No research yet. Analyze an idea to get started.
+              </p>
             ) : (
-              <div className="space-y-2 max-h-[70vh] overflow-y-auto">
+              <div className="space-y-3 max-h-[70vh] overflow-y-auto pr-2">
                 {history.map((item) => (
                   <button
                     key={item.id}
                     onClick={() => router.push(`/appgroup/research/${item.id}`)}
-                    className="w-full text-left bg-white rounded-lg border border-ink-100 p-3 hover:border-ink-300 transition-colors"
+                    className="w-full text-left bg-background-raised rounded-[2px] border border-border p-4 hover:border-border-strong transition-colors group"
                   >
-                    <p className="text-xs font-medium line-clamp-2 mb-1">{item.idea_text}</p>
-                    <div className="flex items-center gap-2 text-2xs text-ink-300">
+                    <p className="text-sm font-medium line-clamp-2 mb-3 group-hover:text-primary text-secondary transition-colors">
+                      {item.idea_text}
+                    </p>
+                    <div className="flex items-center gap-2 text-xs font-mono text-text-tertiary">
                       {item.analysis_type === "deep" ? (
-                        <Search className="w-2.5 h-2.5" />
+                        <Search className="w-3 h-3" />
                       ) : (
-                        <Zap className="w-2.5 h-2.5" />
+                        <Zap className="w-3 h-3" />
                       )}
-                      <span>{item.analysis_type}</span>
-                      <span>·</span>
+                      <span className="capitalize">{item.analysis_type}</span>
+                      <span>&middot;</span>
                       <span>{new Date(item.created_at).toLocaleDateString()}</span>
                     </div>
                   </button>
@@ -154,59 +246,80 @@ function DashboardContent() {
         )}
 
         {/* Main content */}
-        <main className="flex-1 min-w-0">
+        <main className="flex-1 min-w-0 max-w-5xl w-full">
           {/* Input */}
-          <div className="bg-white rounded-xl border border-ink-100 p-6 mb-8">
+          <div className="card-minimal mb-12 relative overflow-hidden">
             <form onSubmit={handleAnalyze}>
-              <textarea
+              <TextareaAutosize
                 value={idea}
                 onChange={(e) => setIdea(e.target.value.slice(0, 500))}
+                onKeyDown={handleKeyDown}
                 placeholder="Describe your project idea..."
-                rows={3}
-                className="input-field mb-4 resize-none"
+                minRows={1}
+                maxRows={10}
+                className="w-full bg-transparent resize-none focus:outline-none text-lg mb-6 placeholder:text-text-tertiary leading-relaxed break-all"
               />
-              <div className="flex items-center justify-between">
-                <div className="flex gap-2">
+              <div className="flex items-center justify-between border-t border-border pt-6">
+                <div className="flex gap-3">
                   <button
                     type="button"
                     onClick={() => setMode("fast")}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                      mode === "fast" ? "bg-ink text-white" : "bg-ink-50 text-ink-400 hover:bg-ink-100"
-                    }`}
+                    className={`flex items-center gap-2 px-4 py-2 rounded-[2px] text-sm font-medium transition-all border ${mode === "fast"
+                      ? "bg-ink-900 border-ink-900 text-white"
+                      : "bg-transparent border-transparent text-secondary hover:bg-background-sunken hover:border-border"
+                      }`}
                   >
-                    <Zap className="w-3 h-3" /> Fast
+                    <Zap className="w-3.5 h-3.5" /> Fast
                   </button>
                   <button
                     type="button"
                     onClick={() => setMode("deep")}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                      mode === "deep" ? "bg-ink text-white" : "bg-ink-50 text-ink-400 hover:bg-ink-100"
-                    }`}
+                    className={`flex items-center gap-2 px-4 py-2 rounded-[2px] text-sm font-medium transition-all border ${mode === "deep"
+                      ? "bg-ink-900 border-ink-900 text-white"
+                      : "bg-transparent border-transparent text-secondary hover:bg-background-sunken hover:border-border"
+                      }`}
                   >
-                    <Search className="w-3 h-3" /> Deep Research
+                    <Search className="w-3.5 h-3.5" /> Deep Research
                   </button>
                 </div>
-                <div className="flex items-center gap-3">
-                  <span className="text-2xs text-ink-300 tabular-nums">{idea.length}/500</span>
-                  <button
-                    type="submit"
-                    disabled={loading || !idea.trim()}
-                    className="btn-primary text-xs disabled:opacity-30"
+                <div className="flex items-center gap-6">
+                  <div
+                    className={`transition-all duration-500 overflow-hidden ${token ? "opacity-0 max-w-0 max-h-0" : "opacity-100 max-w-[300px] max-h-[65px]"
+                      }`}
                   >
-                    {loading ? progress : <>Analyze <ArrowRight className="w-3 h-3 ml-1" /></>}
-                  </button>
+                    <Turnstile
+                      siteKey={process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY || ""}
+                      onSuccess={setToken}
+                    />
+                  </div>
+                  <div className="flex items-center gap-4">
+                    <span className="text-xs font-mono text-text-tertiary tabular-nums">
+                      {idea.length}/500
+                    </span>
+                    <button
+                      type="submit"
+                      disabled={loading || !idea.trim() || !token}
+                      className="btn-primary"
+                    >
+                      {loading ? (
+                        progress
+                      ) : (
+                        <>
+                          Analyze <ArrowRight className="w-3.5 h-3.5 ml-2" />
+                        </>
+                      )}
+                    </button>
+                  </div>
                 </div>
               </div>
             </form>
           </div>
 
-          {/* Loading state */}
+          {/* Loading state (Skeletons per guide) */}
           {loading && (
-            <div className="bg-white rounded-xl border border-ink-100 p-10 text-center animate-fade-in">
-              <div className="inline-flex items-center gap-3">
-                <div className="w-2 h-2 rounded-full bg-ink animate-pulse" />
-                <p className="text-sm text-ink-400">{progress}</p>
-              </div>
+            <div className="card-minimal text-center animate-fade-in flex flex-col items-center justify-center min-h-[200px]">
+              <div className="w-4 h-4 border-2 border-border-strong border-t-ink-900 rounded-full animate-spin mb-4" />
+              <p className="text-sm font-mono text-secondary">{progress}</p>
             </div>
           )}
 
@@ -214,7 +327,12 @@ function DashboardContent() {
           {error && !loading && (
             <div className="bg-white rounded-xl border border-accent/20 p-6 text-center animate-fade-in">
               <p className="text-sm text-accent">{error}</p>
-              <button onClick={() => setError("")} className="btn-secondary text-xs mt-4">Dismiss</button>
+              <button
+                onClick={() => setError("")}
+                className="btn-secondary text-xs mt-4"
+              >
+                Dismiss
+              </button>
             </div>
           )}
 
@@ -222,28 +340,44 @@ function DashboardContent() {
           {result && !loading && (
             <div className="space-y-6 animate-slide-up">
               {/* Verdict */}
-              <div className="bg-white rounded-xl border border-ink-100 p-6">
-                <p className="text-2xs font-medium text-ink-300 uppercase tracking-widest mb-3">Verdict</p>
-                <p className="text-base leading-relaxed">{result.verdict || result.report?.verdict || "Analysis complete."}</p>
+              <div className="card-minimal">
+                <p className="text-xs font-mono text-secondary uppercase tracking-widest mb-4">
+                  Verdict
+                </p>
+                <p className="text-lg leading-relaxed text-primary font-medium">{getVerdict()}</p>
               </div>
 
               {/* Competitors */}
-              {(result.competitors || result.report?.competitors)?.length > 0 && (
-                <div className="bg-white rounded-xl border border-ink-100 p-6">
-                  <p className="text-2xs font-medium text-ink-300 uppercase tracking-widest mb-4">Similar Products</p>
-                  <div className="space-y-3">
-                    {(result.competitors || result.report?.competitors).map((c: any, i: number) => (
-                      <div key={i} className="flex items-start justify-between py-3 border-b border-ink-50 last:border-0">
-                        <div>
-                          <p className="text-sm font-medium">{c.name}</p>
-                          <p className="text-xs text-ink-400 mt-0.5">{c.description}</p>
+              {competitors.length > 0 && (
+                <div className="card-minimal">
+                  <p className="text-xs font-mono text-secondary uppercase tracking-widest mb-6">
+                    Similar Products
+                  </p>
+                  <div className="space-y-0">
+                    {competitors.map((c, i) => (
+                      <div
+                        key={i}
+                        className="group flex items-start justify-between py-5 border-b border-border last:border-0 hover:bg-background-sunken -mx-8 px-8 transition-colors"
+                      >
+                        <div className="max-w-[80%]">
+                          <p className="text-base font-medium mb-1">{c.name}</p>
+                          <p className="text-sm text-secondary leading-relaxed">
+                            {c.description}
+                          </p>
                           {c.differentiator && (
-                            <p className="text-xs text-ink-300 mt-1 italic">Gap: {c.differentiator}</p>
+                            <p className="text-xs text-secondary mt-3 font-mono border-l-2 border-border-strong pl-3">
+                              <span className="text-primary font-medium">Gap: </span>{c.differentiator}
+                            </p>
                           )}
                         </div>
                         {c.url && (
-                          <a href={c.url} target="_blank" rel="noopener noreferrer" className="text-2xs text-ink-300 hover:text-ink flex items-center gap-0.5 shrink-0 ml-4">
-                            Visit <ChevronRight className="w-3 h-3" />
+                          <a
+                            href={c.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-xs font-medium text-secondary hover:text-primary flex items-center gap-1 shrink-0 ml-4 pt-1 transition-colors"
+                          >
+                            Visit <ChevronRight className="w-3.5 h-3.5" />
                           </a>
                         )}
                       </div>
@@ -253,13 +387,16 @@ function DashboardContent() {
               )}
 
               {/* Gaps */}
-              {(result.gaps || result.report?.gaps)?.length > 0 && (
-                <div className="bg-white rounded-xl border border-ink-100 p-6">
-                  <p className="text-2xs font-medium text-blue-600 uppercase tracking-widest mb-3">Market Gaps</p>
-                  <ul className="space-y-2">
-                    {(result.gaps || result.report?.gaps).map((g: string, i: number) => (
-                      <li key={i} className="text-sm text-ink-500 flex gap-2">
-                        <span className="text-blue-500 shrink-0">◆</span> {g}
+              {gaps.length > 0 && (
+                <div className="card-minimal">
+                  <p className="text-xs font-mono text-secondary uppercase tracking-widest mb-6">
+                    Market Gaps
+                  </p>
+                  <ul className="space-y-3">
+                    {gaps.map((g, i) => (
+                      <li key={i} className="text-base text-secondary flex items-start gap-4">
+                        <span className="text-primary mt-1.5 shrink-0"><Zap className="w-3.5 h-3.5" /></span>
+                        <span className="leading-relaxed">{g}</span>
                       </li>
                     ))}
                   </ul>
@@ -268,25 +405,31 @@ function DashboardContent() {
 
               {/* Pros & Cons */}
               <div className="grid md:grid-cols-2 gap-6">
-                {(result.pros || result.report?.pros)?.length > 0 && (
-                  <div className="bg-white rounded-xl border border-ink-100 p-6">
-                    <p className="text-2xs font-medium text-green-600 uppercase tracking-widest mb-3">Pros</p>
-                    <ul className="space-y-2">
-                      {(result.pros || result.report?.pros).map((p: string, i: number) => (
-                        <li key={i} className="text-sm text-ink-500 flex gap-2">
-                          <span className="text-green-500 shrink-0">+</span> {p}
+                {pros.length > 0 && (
+                  <div className="card-minimal">
+                    <p className="text-xs font-mono text-secondary uppercase tracking-widest mb-6">
+                      Pros
+                    </p>
+                    <ul className="space-y-3">
+                      {pros.map((p, i) => (
+                        <li key={i} className="text-base text-secondary flex items-start gap-3">
+                          <span className="text-primary shrink-0 font-medium">+</span>
+                          <span className="leading-relaxed">{p}</span>
                         </li>
                       ))}
                     </ul>
                   </div>
                 )}
-                {(result.cons || result.report?.cons)?.length > 0 && (
-                  <div className="bg-white rounded-xl border border-ink-100 p-6">
-                    <p className="text-2xs font-medium text-accent uppercase tracking-widest mb-3">Cons</p>
-                    <ul className="space-y-2">
-                      {(result.cons || result.report?.cons).map((c: string, i: number) => (
-                        <li key={i} className="text-sm text-ink-500 flex gap-2">
-                          <span className="text-accent shrink-0">&minus;</span> {c}
+                {cons.length > 0 && (
+                  <div className="card-minimal border-accent/20">
+                    <p className="text-xs font-mono text-accent uppercase tracking-widest mb-6">
+                      Cons
+                    </p>
+                    <ul className="space-y-3">
+                      {cons.map((c, i) => (
+                        <li key={i} className="text-base text-secondary flex items-start gap-3">
+                          <span className="text-accent shrink-0 font-medium">&minus;</span>
+                          <span className="leading-relaxed">{c}</span>
                         </li>
                       ))}
                     </ul>
@@ -295,14 +438,18 @@ function DashboardContent() {
               </div>
 
               {/* Build Plan */}
-              {(result.build_plan || result.report?.build_plan)?.length > 0 && (
-                <div className="bg-white rounded-xl border border-ink-100 p-6">
-                  <p className="text-2xs font-medium text-ink-300 uppercase tracking-widest mb-4">Build Plan</p>
-                  <ol className="space-y-2">
-                    {(result.build_plan || result.report?.build_plan).map((step: string, i: number) => (
-                      <li key={i} className="text-sm text-ink-500 flex gap-3">
-                        <span className="font-mono text-2xs text-ink-300 mt-0.5 shrink-0">{String(i + 1).padStart(2, "0")}</span>
-                        {step}
+              {buildPlan.length > 0 && (
+                <div className="card-minimal">
+                  <p className="text-xs font-mono text-secondary uppercase tracking-widest mb-6">
+                    Build Plan
+                  </p>
+                  <ol className="space-y-4">
+                    {buildPlan.map((step, i) => (
+                      <li key={i} className="text-base text-secondary flex items-start gap-4">
+                        <span className="font-mono text-xs font-medium text-primary mt-1 shrink-0 min-w-[24px]">
+                          {String(i + 1).padStart(2, "0")}
+                        </span>
+                        <span className="leading-relaxed">{step}</span>
                       </li>
                     ))}
                   </ol>
@@ -314,7 +461,9 @@ function DashboardContent() {
           {/* Empty state */}
           {!result && !loading && !error && !prefilled && (
             <div className="text-center py-20">
-              <p className="text-ink-300 text-sm">Enter an idea above to get started.</p>
+              <p className="text-secondary text-base">
+                Enter an idea above to get started.
+              </p>
             </div>
           )}
         </main>
