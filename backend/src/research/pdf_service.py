@@ -1,0 +1,167 @@
+"""
+PDF Service — Generate downloadable PDF reports from research results.
+
+Uses fpdf2 (lightweight, pure Python, no system deps).
+Add to requirements.txt: fpdf2==2.8.2
+"""
+
+from fpdf import FPDF
+from datetime import datetime
+
+
+def generate_research_pdf(research: dict) -> bytes:
+    """Generate a formatted PDF report from a research record."""
+    idea = research.get("idea_text", "Unknown idea")
+    category = research.get("category", "Not specified")
+    analysis_type = research.get("analysis_type", "fast")
+    created = research.get("created_at", "")
+    result = research.get("result", {})
+    notes = research.get("notes", "")
+
+    pdf = FPDF()
+    pdf.set_auto_page_break(auto=True, margin=20)
+    pdf.add_page()
+
+    # ─── Cover area ───
+    pdf.set_font("Helvetica", "B", 28)
+    pdf.cell(0, 20, "ShipOrSkip", new_x="LMARGIN", new_y="NEXT", align="C")
+
+    pdf.set_font("Helvetica", "I", 12)
+    pdf.set_text_color(120, 120, 120)
+    pdf.cell(0, 8, "Idea Validation Report", new_x="LMARGIN", new_y="NEXT", align="C")
+
+    pdf.ln(10)
+    pdf.set_draw_color(220, 220, 220)
+    pdf.line(20, pdf.get_y(), 190, pdf.get_y())
+    pdf.ln(10)
+
+    # ─── Idea ───
+    pdf.set_text_color(0, 0, 0)
+    _section_header(pdf, "Idea")
+    pdf.set_font("Helvetica", "", 11)
+    pdf.multi_cell(0, 6, idea)
+    pdf.ln(3)
+
+    pdf.set_font("Helvetica", "", 9)
+    pdf.set_text_color(120, 120, 120)
+    meta_parts = [f"Type: {analysis_type.title()}"]
+    if category:
+        meta_parts.append(f"Category: {category}")
+    if created:
+        try:
+            dt = datetime.fromisoformat(created.replace("Z", "+00:00"))
+            meta_parts.append(f"Date: {dt.strftime('%B %d, %Y')}")
+        except Exception:
+            pass
+    pdf.cell(0, 5, " | ".join(meta_parts), new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(8)
+
+    # ─── Verdict ───
+    verdict = result.get("verdict", "")
+    if verdict:
+        _section_header(pdf, "Verdict")
+        pdf.set_font("Helvetica", "", 11)
+        pdf.set_text_color(0, 0, 0)
+        pdf.multi_cell(0, 6, verdict)
+        pdf.ln(6)
+
+    # ─── Competitors ───
+    competitors = result.get("competitors", [])
+    if competitors:
+        _section_header(pdf, f"Similar Products ({len(competitors)})")
+        for i, c in enumerate(competitors):
+            pdf.set_font("Helvetica", "B", 10)
+            pdf.set_text_color(0, 0, 0)
+            name = c.get("name", f"Competitor {i+1}")
+            threat = c.get("threat_level", "")
+            pdf.cell(0, 6, f"{name}" + (f"  [{threat} threat]" if threat else ""), new_x="LMARGIN", new_y="NEXT")
+
+            pdf.set_font("Helvetica", "", 9)
+            pdf.set_text_color(80, 80, 80)
+            desc = c.get("description", "")
+            if desc:
+                pdf.multi_cell(0, 5, desc)
+
+            diff = c.get("differentiator", "")
+            if diff:
+                pdf.set_font("Helvetica", "I", 9)
+                pdf.set_text_color(100, 100, 100)
+                pdf.multi_cell(0, 5, f"Gap: {diff}")
+
+            url = c.get("url", "")
+            if url:
+                pdf.set_font("Helvetica", "", 8)
+                pdf.set_text_color(60, 100, 180)
+                pdf.cell(0, 5, url, new_x="LMARGIN", new_y="NEXT")
+
+            pdf.ln(3)
+
+    # ─── Market Gaps ───
+    gaps = result.get("gaps", [])
+    if gaps:
+        _section_header(pdf, "Market Gaps")
+        pdf.set_font("Helvetica", "", 10)
+        pdf.set_text_color(0, 0, 0)
+        for g in gaps:
+            pdf.cell(5, 6, chr(9670))  # diamond
+            pdf.multi_cell(0, 6, f"  {g}")
+        pdf.ln(4)
+
+    # ─── Pros ───
+    pros = result.get("pros", [])
+    if pros:
+        _section_header(pdf, "Pros")
+        pdf.set_font("Helvetica", "", 10)
+        pdf.set_text_color(45, 106, 79)  # green
+        for p in pros:
+            pdf.multi_cell(0, 6, f"+  {p}")
+        pdf.ln(4)
+
+    # ─── Cons ───
+    cons = result.get("cons", [])
+    if cons:
+        _section_header(pdf, "Cons")
+        pdf.set_font("Helvetica", "", 10)
+        pdf.set_text_color(230, 57, 70)  # red
+        for c in cons:
+            pdf.multi_cell(0, 6, f"-  {c}")
+        pdf.ln(4)
+
+    # ─── Build Plan ───
+    build_plan = result.get("build_plan", [])
+    if build_plan:
+        _section_header(pdf, "Build Plan")
+        pdf.set_font("Helvetica", "", 10)
+        pdf.set_text_color(0, 0, 0)
+        for i, step in enumerate(build_plan):
+            pdf.multi_cell(0, 6, f"{str(i+1).zfill(2)}.  {step}")
+        pdf.ln(4)
+
+    # ─── Notes ───
+    if notes:
+        _section_header(pdf, "Your Notes")
+        pdf.set_font("Helvetica", "", 10)
+        pdf.set_text_color(0, 0, 0)
+        pdf.multi_cell(0, 6, notes)
+        pdf.ln(4)
+
+    # ─── Footer ───
+    pdf.ln(10)
+    pdf.set_draw_color(220, 220, 220)
+    pdf.line(20, pdf.get_y(), 190, pdf.get_y())
+    pdf.ln(5)
+    pdf.set_font("Helvetica", "I", 8)
+    pdf.set_text_color(150, 150, 150)
+    pdf.cell(0, 5, "Generated by ShipOrSkip — shiporskip.com", new_x="LMARGIN", new_y="NEXT", align="C")
+
+    return pdf.output()
+
+
+def _section_header(pdf: FPDF, title: str):
+    """Render a section header with underline."""
+    pdf.set_font("Helvetica", "B", 13)
+    pdf.set_text_color(10, 10, 46)
+    pdf.cell(0, 10, title, new_x="LMARGIN", new_y="NEXT")
+    pdf.set_draw_color(230, 69, 96)
+    pdf.line(20, pdf.get_y(), 60, pdf.get_y())
+    pdf.ln(4)

@@ -2,16 +2,18 @@
 @tailwind components;
 @tailwind utilities;
 
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&display=swap');
 
 @layer base {
   html {
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
+
   body {
     @apply bg-white text-ink font-sans;
   }
+
   ::selection {
     @apply bg-ink text-white;
   }
@@ -19,18 +21,14 @@
 
 @layer components {
   .btn-primary {
-    @apply inline-flex items-center justify-center px-5 py-2.5 text-sm font-medium
-           bg-ink text-white rounded-lg transition-all duration-200
-           hover:bg-ink-800 active:scale-[0.98];
+    @apply inline-flex items-center justify-center px-5 py-2.5 text-sm font-medium bg-ink text-white rounded-lg transition-all duration-200 hover:bg-ink-800 active:scale-[0.98];
   }
+
   .btn-secondary {
-    @apply inline-flex items-center justify-center px-5 py-2.5 text-sm font-medium
-           bg-ink-50 text-ink border border-ink-100 rounded-lg transition-all duration-200
-           hover:bg-ink-100 active:scale-[0.98];
+    @apply inline-flex items-center justify-center px-5 py-2.5 text-sm font-medium bg-ink-50 text-ink border border-ink-100 rounded-lg transition-all duration-200 hover:bg-ink-100 active:scale-[0.98];
   }
+
   .input-field {
-    @apply w-full px-4 py-3 text-sm bg-white border border-ink-200 rounded-lg
-           placeholder:text-ink-300 focus:outline-none focus:border-ink-900
-           focus:ring-1 focus:ring-ink-900 transition-all duration-200;
+    @apply w-full px-4 py-3 text-sm bg-white border border-ink-200 rounded-lg placeholder:text-ink-300 focus:outline-none focus:border-ink-900 focus:ring-1 focus:ring-ink-900 transition-all duration-200;
   }
 }

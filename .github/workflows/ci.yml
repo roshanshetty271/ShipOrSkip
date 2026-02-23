@@ -32,7 +32,10 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -r requirements.txt
+      - run: pip install ruff
+      - run: ruff check src/
       - run: python -m py_compile src/main.py
       - run: python -m py_compile src/config.py
       - run: python -m py_compile src/research/router.py
       - run: python -m py_compile src/research/service.py
+      - run: python -m py_compile src/research/agents/graph.py

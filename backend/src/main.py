@@ -1,11 +1,12 @@
 import logging
 from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.middleware.gzip import GZipMiddleware
 
 from src.config import get_settings
+from src.middleware import setup_middleware
 from src.research.router import router as research_router
+from src.research.phase2_router import phase2_router
 from src.auth.router import router as auth_router
 
 settings = get_settings()
@@ -14,45 +15,46 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: validate required env vars
-    required = ["openai_api_key", "tavily_api_key"]
+    required = ["openai_api_key"]
     missing = [k for k in required if not getattr(settings, k)]
     if missing:
-        logger.warning(f"Missing env vars: {missing}. Some features will be unavailable.")
+        logger.warning(f"Missing env vars: {missing}. Some features unavailable.")
     yield
-    # Shutdown: cleanup if needed
 
 
 app = FastAPI(
     title="ShipOrSkip API",
-    version="1.0.0",
+    version="2.0.0",
     docs_url="/docs" if settings.debug else None,
+    redoc_url="/redoc" if settings.debug else None,
     lifespan=lifespan,
 )
 
-# --- Middleware ---
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[settings.frontend_url, "http://localhost:3000"],
-    allow_credentials=True,
-    allow_methods=["GET", "POST"],
-    allow_headers=["*"],
-)
-app.add_middleware(GZipMiddleware, minimum_size=1000)
+setup_middleware(app, settings.frontend_url)
 
-# --- Security headers ---
-@app.middleware("http")
-async def security_headers(request, call_next):
-    response = await call_next(request)
-    response.headers["X-Content-Type-Options"] = "nosniff"
-    response.headers["X-Frame-Options"] = "DENY"
-    response.headers["X-XSS-Protection"] = "1; mode=block"
-    return response
-
-# --- Routes ---
+# Phase 1 routes
 app.include_router(research_router, prefix="/api")
 app.include_router(auth_router, prefix="/api/auth")
+
+# Phase 2 routes (chat, notes, PDF)
+app.include_router(phase2_router, prefix="/api")
+
 
 @app.get("/health")
 async def health():
     return {"status": "healthy", "service": "shiporskip-api"}
+
+
+@app.get("/health/detailed")
+async def health_detailed():
+    checks = {"api": "healthy"}
+    if settings.openai_api_key:
+        checks["openai"] = "configured"
+    else:
+        checks["openai"] = "missing"
+    if settings.tavily_api_key:
+        checks["tavily"] = "configured"
+    else:
+        checks["tavily"] = "missing"
+    overall = "healthy" if all(v != "missing" for v in checks.values()) else "degraded"
+    return {"status": overall, "checks": checks}

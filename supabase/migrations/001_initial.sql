@@ -51,9 +51,40 @@ ON research FOR UPDATE TO authenticated
 USING ((SELECT auth.uid()) = user_id)
 WITH CHECK ((SELECT auth.uid()) = user_id);
 
+-- Chat messages (Phase 2)
+CREATE TABLE IF NOT EXISTS chat_messages (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    research_id UUID REFERENCES research(id) ON DELETE CASCADE,
+    role TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
+    content TEXT NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE chat_messages ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Users can view own chat messages"
+ON chat_messages FOR SELECT TO authenticated
+USING (
+    research_id IN (
+        SELECT id FROM research WHERE user_id = (SELECT auth.uid())
+    )
+);
+
 -- Indexes for RLS performance
 CREATE INDEX IF NOT EXISTS idx_research_user_id ON research(user_id);
 CREATE INDEX IF NOT EXISTS idx_research_created_at ON research(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_chat_messages_research_id ON chat_messages(research_id);
+
+-- RPC to atomically increment deep research count
+CREATE OR REPLACE FUNCTION increment_deep_count(user_id_input UUID)
+RETURNS VOID AS $$
+BEGIN
+    UPDATE profiles
+    SET deep_research_count = deep_research_count + 1,
+        last_reset_date = CURRENT_DATE
+    WHERE id = user_id_input;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- Auto-create profile on signup
 CREATE OR REPLACE FUNCTION handle_new_user()
