@@ -1,0 +1,35 @@
+# Dependencies
+node_modules/
+venv/
+.venv/
+
+# Build outputs
+.next/
+dist/
+
+# Environment files
+.env*
+
+# Python
+__pycache__/
+*.pyc
+
+# Vercel
+.vercel
+
+# Markdown docs (keep README and LICENSE only)
+*.md
+!README.md
+
+# Internal docs
+*.docx
+*.txt
+_arch_doc*
+Security-audit*
+
+# Gemini
+.gemini/
+
+# IDE
+.vscode/
+.idea/
