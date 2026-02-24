@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from src.config import get_settings
 from src.middleware import setup_middleware
 from src.research.router import router as research_router
-from src.research.router import router
+from src.research.phase2_router import phase2_router
 from src.auth.router import router as auth_router
 
 settings = get_settings()
@@ -26,7 +26,6 @@ app = FastAPI(
     title="ShipOrSkip API",
     version="2.0.0",
     docs_url="/docs" if settings.debug else None,
-    redoc_url="/redoc" if settings.debug else None,
     lifespan=lifespan,
 )
 
@@ -36,7 +35,14 @@ setup_middleware(app, settings.frontend_url)
 app.include_router(research_router, prefix="/api")
 app.include_router(auth_router, prefix="/api/auth")
 
-# Phase 2 routes (chat, notes, PDF) etc are in research_router
+# Phase 2 routes (chat, notes, PDF)
+app.include_router(phase2_router, prefix="/api")
+
+
+@app.get("/")
+async def root():
+    """Root endpoint — used by UptimeRobot to keep HF Spaces alive."""
+    return {"status": "alive", "service": "shiporskip-api"}
 
 
 @app.get("/health")

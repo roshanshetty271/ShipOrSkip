@@ -1,13 +1,18 @@
 FROM python:3.12-slim
 
+# HF Spaces requires non-root user
+RUN useradd -m -u 1000 user
+USER user
+ENV PATH="/home/user/.local/bin:$PATH"
+
 WORKDIR /app
 
-COPY requirements.txt .
+COPY --chown=user requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY src/ src/
-COPY gunicorn.conf.py .
+COPY --chown=user src/ src/
 
-EXPOSE 8000
+# HF Spaces requires port 7860
+EXPOSE 7860
 
-CMD ["gunicorn", "src.main:app", "-c", "gunicorn.conf.py"]
+CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "7860", "--workers", "1"]
