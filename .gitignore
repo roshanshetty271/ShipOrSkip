@@ -24,6 +24,7 @@ __pycache__/
 # Internal docs
 *.docx
 *.txt
+!requirements.txt
 _arch_doc*
 Security-audit*
 
