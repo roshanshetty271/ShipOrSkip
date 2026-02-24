@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, Suspense } from "react";
+import { useState, useEffect, Suspense, useRef } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import {
   ArrowRight,
@@ -8,6 +8,10 @@ import {
   Search,
   ChevronRight,
   RotateCcw,
+  ExternalLink,
+  Github,
+  Globe,
+  Lock,
 } from "lucide-react";
 import Link from "next/link";
 import { useAuth } from "@/hooks/use-auth";
@@ -34,6 +38,52 @@ interface CompetitorItem {
   url?: string;
 }
 
+interface RawSource {
+  title: string;
+  url: string;
+  snippet: string;
+  source_type: string;
+  score: number;
+}
+
+function SourceBadge({ type }: { type: string }) {
+  const colors: Record<string, string> = {
+    github: "bg-gray-800 text-white",
+    producthunt: "bg-orange-500 text-white",
+    reddit: "bg-orange-600 text-white",
+    hackernews: "bg-orange-400 text-white",
+    web: "bg-ink-100 text-ink-500",
+  };
+  const label: Record<string, string> = {
+    github: "GitHub",
+    producthunt: "Product Hunt",
+    reddit: "Reddit",
+    hackernews: "Hacker News",
+    web: "Web",
+  };
+  return (
+    <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${colors[type] || colors.web}`}>
+      {label[type] || "Web"}
+    </span>
+  );
+}
+
+// Friendly progress messages for deep research
+function friendlyProgress(raw: string): string {
+  const lower = raw.toLowerCase();
+  if (lower.includes("starting")) return "Starting research...";
+  if (lower.includes("planned") || lower.includes("queries")) return "Searching the web for competitors...";
+  if (lower.includes("web:") || lower.includes("tavily")) return "Scanning websites, GitHub, and Product Hunt...";
+  if (lower.includes("github")) return "Looking through GitHub repositories...";
+  if (lower.includes("product hunt")) return "Checking recent Product Hunt launches...";
+  if (lower.includes("filtered") || lower.includes("dedup")) return "Filtering and ranking results...";
+  if (lower.includes("deep fetch") || lower.includes("readme")) return "Reading competitor pages and READMEs...";
+  if (lower.includes("profiles") || lower.includes("extract")) return "Extracting competitor details...";
+  if (lower.includes("analysis complete") || lower.includes("strategist")) return "Finalizing your report...";
+  if (lower.includes("complete")) return "Almost done...";
+  return "Researching...";
+}
+
 function DashboardContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -47,6 +97,41 @@ function DashboardContent() {
   const [progress, setProgress] = useState("");
   const [error, setError] = useState("");
   const [token, setToken] = useState<string>("");
+  const [verified, setVerified] = useState(false);
+  const [showAllSources, setShowAllSources] = useState(false);
+  const turnstileRef = useRef<any>(null);
+
+  // Save pending results to session storage so they survive login redirects
+  useEffect(() => {
+    if (result) {
+      sessionStorage.setItem("shiporskip_pending_result", JSON.stringify(result));
+      sessionStorage.setItem("shiporskip_pending_idea", idea);
+    }
+  }, [result, idea]);
+
+  // Restore pending results on mount
+  useEffect(() => {
+    const savedResult = sessionStorage.getItem("shiporskip_pending_result");
+    const savedIdea = sessionStorage.getItem("shiporskip_pending_idea");
+    if (savedResult && !result) {
+      try {
+        setResult(JSON.parse(savedResult));
+        if (savedIdea) setIdea(savedIdea);
+        sessionStorage.removeItem("shiporskip_pending_result");
+        sessionStorage.removeItem("shiporskip_pending_idea");
+      } catch { }
+    }
+  }, []);
+
+  const handleTurnstileSuccess = (t: string) => {
+    setToken(t);
+    setVerified(true);
+  };
+
+  const handleSignOut = async () => {
+    await signOut();
+    router.push("/");
+  };
 
   // Research history
   const [history, setHistory] = useState<ResearchItem[]>([]);
@@ -65,7 +150,7 @@ function DashboardContent() {
       const items = await getResearchHistory();
       setHistory(items);
     } catch {
-      // silently fail — history is non-critical
+      // silently fail
     } finally {
       setHistoryLoading(false);
     }
@@ -75,20 +160,23 @@ function DashboardContent() {
     e.preventDefault();
     if (!idea.trim() || loading) return;
 
-    if (!token) {
+    if (!verified || !token) {
       setError("Please complete verification");
       return;
     }
 
     setLoading(true);
+    setResult(null);
     setError("");
+    setShowAllSources(false);
 
-    try {
-      if (mode === "deep") {
+    if (mode === "deep") {
+      setProgress("Starting research...");
+      try {
         await analyzeDeepStream(
           idea,
           null,
-          (msg: string) => setProgress(msg),
+          (msg: string) => setProgress(friendlyProgress(msg)),
           (data: Record<string, unknown>) => {
             setResult(data);
             setLoading(false);
@@ -100,18 +188,24 @@ function DashboardContent() {
           },
           token
         );
-        return;
-      } else {
+      } catch (err: unknown) {
+        setError(err instanceof Error ? err.message : "Research failed.");
+        setLoading(false);
+      } finally {
+        turnstileRef.current?.reset();
+      }
+    } else {
+      setProgress("Analyzing your idea...");
+      try {
         const data = await analyzeFast(idea, undefined, token);
         setResult(data);
         if (user) loadHistory();
+      } catch (err: unknown) {
+        setError(err instanceof Error ? err.message : "Analysis failed.");
+      } finally {
+        setLoading(false);
+        turnstileRef.current?.reset();
       }
-    } catch (err: unknown) {
-      const message =
-        err instanceof Error ? err.message : "Analysis failed. Please try again.";
-      setError(message);
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -148,6 +242,11 @@ function DashboardContent() {
   const pros = getField("pros") as string[];
   const cons = getField("cons") as string[];
   const buildPlan = getField("build_plan") as string[];
+  const rawSources = getField("raw_sources") as RawSource[];
+
+  // Sources that aren't already shown as competitors
+  const competitorUrls = new Set(competitors.map(c => c.url?.toLowerCase().replace(/\/$/, "") || ""));
+  const extraSources = rawSources.filter(s => !competitorUrls.has(s.url.toLowerCase().replace(/\/$/, "")));
 
   const initials = user?.email ? user.email[0].toUpperCase() : "?";
 
@@ -177,7 +276,7 @@ function DashboardContent() {
                   {initials}
                 </div>
                 <button
-                  onClick={signOut}
+                  onClick={handleSignOut}
                   className="text-xs text-secondary hover:text-primary transition-colors"
                 >
                   Sign out
@@ -284,12 +383,13 @@ function DashboardContent() {
                 </div>
                 <div className="flex items-center gap-6">
                   <div
-                    className={`transition-all duration-500 overflow-hidden ${token ? "opacity-0 max-w-0 max-h-0" : "opacity-100 max-w-[300px] max-h-[65px]"
+                    className={`transition-all duration-500 overflow-hidden ${verified ? "opacity-0 max-w-0 max-h-0" : "opacity-100 max-w-[300px] max-h-[65px]"
                       }`}
                   >
                     <Turnstile
+                      ref={turnstileRef}
                       siteKey={process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY || ""}
-                      onSuccess={setToken}
+                      onSuccess={handleTurnstileSuccess}
                     />
                   </div>
                   <div className="flex items-center gap-4">
@@ -298,7 +398,7 @@ function DashboardContent() {
                     </span>
                     <button
                       type="submit"
-                      disabled={loading || !idea.trim() || !token}
+                      disabled={loading || !idea.trim() || !verified}
                       className="btn-primary"
                     >
                       {loading ? (
@@ -315,7 +415,7 @@ function DashboardContent() {
             </form>
           </div>
 
-          {/* Loading state (Skeletons per guide) */}
+          {/* Loading state */}
           {loading && (
             <div className="card-minimal text-center animate-fade-in flex flex-col items-center justify-center min-h-[200px]">
               <div className="w-4 h-4 border-2 border-border-strong border-t-ink-900 rounded-full animate-spin mb-4" />
@@ -347,7 +447,7 @@ function DashboardContent() {
                 <p className="text-lg leading-relaxed text-primary font-medium">{getVerdict()}</p>
               </div>
 
-              {/* Competitors */}
+              {/* Competitors + Raw Sources (same card) */}
               {competitors.length > 0 && (
                 <div className="card-minimal">
                   <p className="text-xs font-mono text-secondary uppercase tracking-widest mb-6">
@@ -383,6 +483,100 @@ function DashboardContent() {
                       </div>
                     ))}
                   </div>
+
+                  {/* ═══ MORE SOURCES — same card layout, blurred for anon ═══ */}
+                  {extraSources.length > 0 && (
+                    <div className="mt-2">
+                      {/* Anonymous: blurred teaser using SAME competitor card layout */}
+                      {!user && (
+                        <div className="relative">
+                          {/* Fake competitor cards that look exactly like the real ones above */}
+                          <div className="space-y-0">
+                            {extraSources.slice(0, 3).map((s, i) => (
+                              <div
+                                key={i}
+                                className="flex items-start justify-between py-5 border-b border-border last:border-0 -mx-8 px-8 blur-[5px] select-none pointer-events-none"
+                              >
+                                <div className="max-w-[80%]">
+                                  <div className="flex items-center gap-2 mb-1">
+                                    <p className="text-base font-medium">{s.title}</p>
+                                    <SourceBadge type={s.source_type} />
+                                  </div>
+                                  <p className="text-sm text-secondary leading-relaxed">
+                                    {s.snippet}
+                                  </p>
+                                </div>
+                                <span className="text-xs font-medium text-secondary flex items-center gap-1 shrink-0 ml-4 pt-1">
+                                  Visit <ChevronRight className="w-3.5 h-3.5" />
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                          {/* Overlay */}
+                          <div className="absolute inset-0 flex flex-col items-center justify-center bg-gradient-to-t from-white via-white/90 to-white/50">
+                            <Lock className="w-4 h-4 text-secondary mb-2" />
+                            <p className="text-sm font-medium text-primary mb-1">
+                              {extraSources.length} more sources found
+                            </p>
+                            <p className="text-xs text-secondary mb-3">Sign in to see all discovered sources</p>
+                            <Link href="/auth/login?returnTo=/appgroup/dashboard" className="btn-primary text-xs py-2 px-5">
+                              Sign in to unlock
+                            </Link>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Signed-in: collapsed preview */}
+                      {user && !showAllSources && (
+                        <button
+                          onClick={() => setShowAllSources(true)}
+                          className="w-full mt-4 py-3 text-sm text-secondary hover:text-primary font-medium flex items-center justify-center gap-1.5 border border-border rounded-[2px] hover:border-border-strong transition-colors"
+                        >
+                          See {extraSources.length} more sources <ChevronRight className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+
+                      {/* Signed-in: expanded full list — same card layout as competitors */}
+                      {user && showAllSources && (
+                        <div className="mt-2 animate-fade-in">
+                          <p className="text-xs font-mono text-secondary uppercase tracking-widest mb-4 pt-4 border-t border-border">
+                            More Sources
+                          </p>
+                          {extraSources.map((s, i) => (
+                            <div
+                              key={i}
+                              className="group flex items-start justify-between py-5 border-b border-border last:border-0 hover:bg-background-sunken -mx-8 px-8 transition-colors"
+                            >
+                              <div className="max-w-[80%]">
+                                <div className="flex items-center gap-2 mb-1">
+                                  <p className="text-base font-medium">{s.title}</p>
+                                  <SourceBadge type={s.source_type} />
+                                </div>
+                                <p className="text-sm text-secondary leading-relaxed">
+                                  {s.snippet}
+                                </p>
+                                <p className="text-[10px] font-mono text-text-tertiary mt-1 truncate">{s.url}</p>
+                              </div>
+                              <a
+                                href={s.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-xs font-medium text-secondary hover:text-primary flex items-center gap-1 shrink-0 ml-4 pt-1 transition-colors"
+                              >
+                                Visit <ChevronRight className="w-3.5 h-3.5" />
+                              </a>
+                            </div>
+                          ))}
+                          <button
+                            onClick={() => setShowAllSources(false)}
+                            className="mt-4 text-xs font-mono text-secondary hover:text-primary transition-colors"
+                          >
+                            Show less
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
 

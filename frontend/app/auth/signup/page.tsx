@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/hooks/use-auth";
+import { supabase } from "@/lib/supabase";
 import { Turnstile } from "@marsidev/react-turnstile";
 
 export default function SignupPage() {
@@ -15,12 +16,21 @@ export default function SignupPage() {
   const [token, setToken] = useState<string>("");
   const { signUpWithEmail } = useAuth();
 
+  const router = useRouter();
+
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError("");
     try {
       await signUpWithEmail(email, password, token);
+
+      const { data } = await supabase.auth.getSession();
+      if (data.session) {
+        router.push("/appgroup/dashboard");
+        return;
+      }
+
       setSuccess(true);
     } catch (err: any) {
       setError(err.message || "Sign up failed");

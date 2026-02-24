@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/hooks/use-auth";
 import { Turnstile } from "@marsidev/react-turnstile";
@@ -13,6 +13,7 @@ export default function LoginPage() {
   const [error, setError] = useState("");
   const [token, setToken] = useState<string>("");
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { signInWithEmail, signInWithGoogle } = useAuth();
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -21,7 +22,8 @@ export default function LoginPage() {
     setError("");
     try {
       await signInWithEmail(email, password, token);
-      router.push("/appgroup/dashboard");
+      const returnTo = searchParams.get("returnTo") || "/appgroup/dashboard";
+      router.push(returnTo);
     } catch (err: any) {
       setError(err.message || "Sign in failed");
     } finally {
