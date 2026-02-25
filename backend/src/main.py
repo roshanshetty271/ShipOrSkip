@@ -6,7 +6,6 @@ from fastapi import FastAPI
 from src.config import get_settings
 from src.middleware import setup_middleware
 from src.research.router import router as research_router
-from src.research.phase2_router import phase2_router
 from src.auth.router import router as auth_router
 
 settings = get_settings()
@@ -31,12 +30,8 @@ app = FastAPI(
 
 setup_middleware(app, settings.frontend_url)
 
-# Phase 1 routes
 app.include_router(research_router, prefix="/api")
 app.include_router(auth_router, prefix="/api/auth")
-
-# Phase 2 routes (chat, notes, PDF)
-app.include_router(phase2_router, prefix="/api")
 
 
 @app.get("/")
