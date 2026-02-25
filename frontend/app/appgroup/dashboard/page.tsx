@@ -22,6 +22,7 @@ import {
 } from "@/services/api";
 import { Turnstile } from "@marsidev/react-turnstile";
 import TextareaAutosize from 'react-textarea-autosize';
+import { supabase } from "@/lib/supabase";
 
 interface ResearchItem {
   id: string;
@@ -100,6 +101,7 @@ function DashboardContent() {
   const [verified, setVerified] = useState(false);
   const [showAllSources, setShowAllSources] = useState(false);
   const turnstileRef = useRef<any>(null);
+  const [limits, setLimits] = useState<any>(null);
 
   // Save pending results to session storage so they survive login redirects
   useEffect(() => {
@@ -122,6 +124,28 @@ function DashboardContent() {
       } catch { }
     }
   }, []);
+
+  useEffect(() => {
+    const fetchLimits = async () => {
+      try {
+        const headers: Record<string, string> = {};
+        if (user) {
+          const { data } = await supabase.auth.getSession();
+          if (data.session?.access_token) {
+            headers["Authorization"] = `Bearer ${data.session.access_token}`;
+          }
+        }
+        const r = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/api/limits`, {
+          headers,
+        });
+        if (r.ok) {
+          const data = await r.json();
+          setLimits(data);
+        }
+      } catch { }
+    };
+    fetchLimits();
+  }, [user]);
 
   const handleTurnstileSuccess = (t: string) => {
     setToken(t);
@@ -160,8 +184,12 @@ function DashboardContent() {
     e.preventDefault();
     if (!idea.trim() || loading) return;
 
-    if (!verified || !token) {
+    if (!verified) {
       setError("Please complete verification");
+      return;
+    }
+    if (!token) {
+      setError("Refreshing security check... Please try again in a second.");
       return;
     }
 
@@ -179,11 +207,18 @@ function DashboardContent() {
           (msg: string) => setProgress(friendlyProgress(msg)),
           (data: Record<string, unknown>) => {
             setResult(data);
+            if (data.limits) setLimits(data.limits);
             setLoading(false);
             if (user) loadHistory();
           },
-          (err: string) => {
-            setError(err);
+          (err: any) => {
+            if (err?.response?.status === 429 && err?.response?.data?.detail) {
+              const detail = err.response.data.detail;
+              setError(detail.message || "Rate limit exceeded.");
+              if (detail.limits) setLimits(detail.limits);
+            } else {
+              setError(err instanceof Error ? err.message : typeof err === "string" ? err : "Research failed.");
+            }
             setLoading(false);
           },
           token
@@ -192,6 +227,7 @@ function DashboardContent() {
         setError(err instanceof Error ? err.message : "Research failed.");
         setLoading(false);
       } finally {
+        setToken("");
         turnstileRef.current?.reset();
       }
     } else {
@@ -199,11 +235,19 @@ function DashboardContent() {
       try {
         const data = await analyzeFast(idea, undefined, token);
         setResult(data);
+        if (data.limits) setLimits(data.limits);
         if (user) loadHistory();
-      } catch (err: unknown) {
-        setError(err instanceof Error ? err.message : "Analysis failed.");
+      } catch (err: any) {
+        if (err?.response?.status === 429 && err?.response?.data?.detail) {
+          const detail = err.response.data.detail;
+          setError(detail.message || "Rate limit exceeded.");
+          if (detail.limits) setLimits(detail.limits);
+        } else {
+          setError(err instanceof Error ? err.message : "Analysis failed.");
+        }
       } finally {
         setLoading(false);
+        setToken("");
         turnstileRef.current?.reset();
       }
     }
@@ -381,34 +425,48 @@ function DashboardContent() {
                     <Search className="w-3.5 h-3.5" /> Deep Research
                   </button>
                 </div>
-                <div className="flex items-center gap-6">
-                  <div
-                    className={`transition-all duration-500 overflow-hidden ${verified ? "opacity-0 max-w-0 max-h-0" : "opacity-100 max-w-[300px] max-h-[65px]"
-                      }`}
-                  >
-                    <Turnstile
-                      ref={turnstileRef}
-                      siteKey={process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY || ""}
-                      onSuccess={handleTurnstileSuccess}
-                    />
-                  </div>
-                  <div className="flex items-center gap-4">
-                    <span className="text-xs font-mono text-text-tertiary tabular-nums">
-                      {idea.length}/500
-                    </span>
-                    <button
-                      type="submit"
-                      disabled={loading || !idea.trim() || !verified}
-                      className="btn-primary"
-                    >
-                      {loading ? (
-                        progress
-                      ) : (
-                        <>
-                          Analyze <ArrowRight className="w-3.5 h-3.5 ml-2" />
-                        </>
+
+                <div className="flex items-center gap-4 text-xs">
+                  {limits && limits.remaining_fast !== "unlimited" && (
+                    <span className="text-xs font-mono text-text-tertiary">
+                      {mode === "fast"
+                        ? `${limits.remaining_fast} of ${limits.fast_limit} fast left`
+                        : `${limits.remaining_deep} of ${limits.deep_limit} deep left`}
+                      {!user && limits.remaining_fast === 0 && limits.remaining_deep === 0 && (
+                        <> · <Link href="/auth/login" className="text-primary hover:underline">Sign in for more</Link></>
                       )}
-                    </button>
+                    </span>
+                  )}
+
+                  <div className="flex items-center gap-6">
+                    <div
+                      className={`transition-all duration-500 overflow-hidden ${verified ? "opacity-0 max-w-0 max-h-0" : "opacity-100 max-w-[300px] max-h-[65px]"
+                        }`}
+                    >
+                      <Turnstile
+                        ref={turnstileRef}
+                        siteKey={process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY || ""}
+                        onSuccess={handleTurnstileSuccess}
+                      />
+                    </div>
+                    <div className="flex items-center gap-4">
+                      <span className="text-xs font-mono text-text-tertiary tabular-nums">
+                        {idea.length}/500
+                      </span>
+                      <button
+                        type="submit"
+                        disabled={loading || !idea.trim() || !verified}
+                        className="btn-primary"
+                      >
+                        {loading ? (
+                          progress
+                        ) : (
+                          <>
+                            Analyze <ArrowRight className="w-3.5 h-3.5 ml-2" />
+                          </>
+                        )}
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -425,11 +483,20 @@ function DashboardContent() {
 
           {/* Error state */}
           {error && !loading && (
-            <div className="bg-white rounded-xl border border-accent/20 p-6 text-center animate-fade-in">
+            <div className="bg-white rounded-xl border border-accent/20 p-6 text-center animate-fade-in relative">
               <p className="text-sm text-accent">{error}</p>
+
+              {!user && error.includes("Sign in") && (
+                <div className="mt-4">
+                  <Link href="/auth/login" className="btn-primary text-xs py-2 px-5 inline-block">
+                    Sign in
+                  </Link>
+                </div>
+              )}
+
               <button
                 onClick={() => setError("")}
-                className="btn-secondary text-xs mt-4"
+                className="btn-secondary text-xs mt-4 absolute top-2 right-4 !mt-0"
               >
                 Dismiss
               </button>
