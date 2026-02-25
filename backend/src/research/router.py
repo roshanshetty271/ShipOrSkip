@@ -23,6 +23,7 @@ from fastapi.responses import StreamingResponse, Response
 
 from src.middleware import limiter
 from src.research.schemas import AnalyzeRequest
+from pydantic import BaseModel, Field
 from src.research.service import fast_analysis, deep_research_stream
 from src.research.chat_service import chat_with_research
 from src.research.pdf_service import generate_research_pdf
