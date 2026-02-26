@@ -46,10 +46,10 @@ FREE_FAST_DAILY = 10
 FREE_DEEP_DAILY = 3
 
 # ═══════════════════════════════════════
-# Anonymous IP tracking (in-memory)
 # ═══════════════════════════════════════
 
 _anon_usage: dict[str, dict] = defaultdict(lambda: {"fast": 0, "deep": 0})
+_verified_ips: set[str] = set()
 
 
 def _get_client_ip(request: Request) -> str:
@@ -126,7 +126,11 @@ async def _get_signed_in_remaining(user: dict) -> dict:
 # Common checks
 # ═══════════════════════════════════════
 
-async def _check_turnstile(token: Optional[str], settings: Settings):
+async def _check_turnstile(request: Request, token: Optional[str], settings: Settings):
+    ip = _get_client_ip(request)
+    if ip in _verified_ips:
+        return
+
     secret = settings.turnstile_secret_key.strip()
     if not secret or secret in _TURNSTILE_TEST_KEYS:
         return
@@ -135,6 +139,8 @@ async def _check_turnstile(token: Optional[str], settings: Settings):
     valid = await verify_turnstile(token, secret)
     if not valid:
         raise HTTPException(status_code=403, detail="Bot verification failed")
+    
+    _verified_ips.add(ip)
 
 
 def _check_anon_limit(request: Request, analysis_type: str):
@@ -302,7 +308,7 @@ async def analyze_fast(
     if not settings.openai_api_key:
         raise HTTPException(status_code=503, detail="OpenAI API key not configured")
     if not user:
-        await _check_turnstile(req.turnstile_token, settings)
+        await _check_turnstile(request, req.turnstile_token, settings)
 
     # Rate limit check
     if user:
@@ -341,7 +347,7 @@ async def analyze_deep(
     if not settings.openai_api_key:
         raise HTTPException(status_code=503, detail="OpenAI API key not configured")
     if not user:
-        await _check_turnstile(req.turnstile_token, settings)
+        await _check_turnstile(request, req.turnstile_token, settings)
 
     # Rate limit check
     if user:

@@ -119,28 +119,35 @@ function DashboardContent() {
     }
   }, [result, idea]);
 
-  // Restore pending results on mount
+  // Restore pending results on mount or clear if URL has a different idea
   useEffect(() => {
     const savedResult = sessionStorage.getItem("shiporskip_pending_result");
     const savedIdea = sessionStorage.getItem("shiporskip_pending_idea");
-    if (savedResult && !result) {
-      try {
-        setResult(JSON.parse(savedResult));
-        if (savedIdea) setIdea(savedIdea);
-        sessionStorage.removeItem("shiporskip_pending_result");
-        sessionStorage.removeItem("shiporskip_pending_idea");
-      } catch { }
+    const urlIdea = searchParams.get("idea");
+
+    if (savedResult && savedIdea) {
+      if (!urlIdea || urlIdea === savedIdea) {
+        try {
+          setResult(JSON.parse(savedResult));
+          setIdea(savedIdea);
+        } catch { }
+      }
+      sessionStorage.removeItem("shiporskip_pending_result");
+      sessionStorage.removeItem("shiporskip_pending_idea");
     }
-  }, []);
+  }, [searchParams]);
 
   useEffect(() => {
     const newIdea = searchParams.get("idea");
-    if (newIdea && newIdea !== idea) {
-      setIdea(newIdea);
-      setResult(null);
-      setError("");
-      setShowAllSources(false);
-    }
+    setIdea(currentIdea => {
+      if (newIdea && newIdea !== currentIdea) {
+        setResult(null);
+        setError("");
+        setShowAllSources(false);
+        return newIdea;
+      }
+      return currentIdea;
+    });
   }, [searchParams]);
 
   useEffect(() => {
@@ -237,6 +244,10 @@ function DashboardContent() {
               const detail = err.response.data.detail;
               setError(detail.message || "Rate limit exceeded.");
               if (detail.limits) setLimits(detail.limits);
+            } else if (err?.response?.status === 403 || err?.response?.data?.detail === "Bot verification failed") {
+              setVerified(false);
+              setToken("");
+              setError("Bot verification expired. Please verify again.");
             } else {
               setError(err instanceof Error ? err.message : typeof err === "string" ? err : "Research failed.");
             }
@@ -268,6 +279,10 @@ function DashboardContent() {
           const detail = err.response.data.detail;
           setError(detail.message || "Rate limit exceeded.");
           if (detail.limits) setLimits(detail.limits);
+        } else if (err?.response?.status === 403 || err?.response?.data?.detail === "Bot verification failed") {
+          setVerified(false);
+          setToken("");
+          setError("Bot verification expired. Please verify again.");
         } else {
           setError(err instanceof Error ? err.message : "Analysis failed.");
         }
@@ -590,71 +605,80 @@ function DashboardContent() {
                   </div>
                 )}
 
-                {/* Strategic Analysis (Pros, Cons, Gaps) */}
+                {/* Strategic Analysis */}
                 {(pros.length > 0 || cons.length > 0 || gaps.length > 0) && (
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    {/* Pros */}
-                    {pros.length > 0 && (
-                      <div className="bg-white rounded-2xl p-6 md:p-8 border border-border/50 shadow-sm relative overflow-hidden group hover:border-accent-green/30 transition-all duration-300">
-                        <div className="absolute top-0 left-0 w-full h-1 bg-accent-green scale-x-0 group-hover:scale-x-100 origin-left transition-transform duration-500"></div>
-                        <div className="flex items-center gap-3 mb-6">
-                          <div className="w-8 h-8 rounded-full bg-accent-green/10 flex items-center justify-center border border-accent-green/20">
-                            <Zap className="w-4 h-4 text-accent-green" />
-                          </div>
-                          <h4 className="font-display text-2xl text-ink-900">Strengths</h4>
-                        </div>
-                        <ul className="space-y-4">
-                          {pros.map((p, i) => (
-                            <li key={i} className="flex items-start gap-3">
-                              <span className="font-bold text-accent-green mt-0.5">+</span>
-                              <span className="font-sans text-sm text-text-secondary leading-relaxed">{p}</span>
-                            </li>
-                          ))}
-                        </ul>
+                  <div className="bg-white rounded-2xl p-8 sm:p-12 border border-border/50 shadow-sm">
+                    <div className="flex items-center gap-4 mb-8">
+                      <div className="w-12 h-12 rounded-xl bg-ink-900/5 flex items-center justify-center border border-border/50">
+                        <Search className="w-6 h-6 text-ink-900" />
                       </div>
-                    )}
+                      <div>
+                        <h3 className="font-display text-3xl text-ink-900">Strategic Analysis</h3>
+                        <p className="font-sans text-text-secondary text-sm">Key advantages, risks, and market opportunities.</p>
+                      </div>
+                    </div>
 
-                    {/* Cons */}
-                    {cons.length > 0 && (
-                      <div className="bg-white rounded-2xl p-6 md:p-8 border border-border/50 shadow-sm relative overflow-hidden group hover:border-accent/30 transition-all duration-300">
-                        <div className="absolute top-0 left-0 w-full h-1 bg-accent scale-x-0 group-hover:scale-x-100 origin-left transition-transform duration-500"></div>
-                        <div className="flex items-center gap-3 mb-6">
-                          <div className="w-8 h-8 rounded-full bg-accent/10 flex items-center justify-center border border-accent/20">
-                            <X className="w-4 h-4 text-accent" />
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-8 md:gap-12">
+                      {/* Pros */}
+                      {pros.length > 0 && (
+                        <div>
+                          <div className="flex items-center gap-2 mb-4">
+                            <div className="w-6 h-6 rounded-full bg-accent-green/10 flex items-center justify-center">
+                              <Zap className="w-3 h-3 text-accent-green" />
+                            </div>
+                            <h4 className="font-display text-xl text-ink-900">Strengths</h4>
                           </div>
-                          <h4 className="font-display text-2xl text-ink-900">Weaknesses</h4>
+                          <ul className="space-y-3">
+                            {pros.map((p, i) => (
+                              <li key={i} className="flex items-start gap-2">
+                                <span className="font-bold text-accent-green mt-0.5">+</span>
+                                <span className="font-sans text-sm text-text-secondary leading-relaxed">{p}</span>
+                              </li>
+                            ))}
+                          </ul>
                         </div>
-                        <ul className="space-y-4">
-                          {cons.map((c, i) => (
-                            <li key={i} className="flex items-start gap-3">
-                              <span className="font-bold text-accent mt-0.5">&minus;</span>
-                              <span className="font-sans text-sm text-text-secondary leading-relaxed">{c}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
+                      )}
 
-                    {/* Gaps */}
-                    {gaps.length > 0 && (
-                      <div className="bg-white rounded-2xl p-6 md:p-8 border border-border/50 shadow-sm relative overflow-hidden group hover:border-ink-900/30 transition-all duration-300">
-                        <div className="absolute top-0 left-0 w-full h-1 bg-ink-900 scale-x-0 group-hover:scale-x-100 origin-left transition-transform duration-500"></div>
-                        <div className="flex items-center gap-3 mb-6">
-                          <div className="w-8 h-8 rounded-full bg-background-raised flex items-center justify-center border border-border-strong">
-                            <Search className="w-4 h-4 text-ink-900" />
+                      {/* Cons */}
+                      {cons.length > 0 && (
+                        <div>
+                          <div className="flex items-center gap-2 mb-4">
+                            <div className="w-6 h-6 rounded-full bg-accent/10 flex items-center justify-center">
+                              <X className="w-3 h-3 text-accent" />
+                            </div>
+                            <h4 className="font-display text-xl text-ink-900">Weaknesses</h4>
                           </div>
-                          <h4 className="font-display text-2xl text-ink-900">Unmet Gaps</h4>
+                          <ul className="space-y-3">
+                            {cons.map((c, i) => (
+                              <li key={i} className="flex items-start gap-2">
+                                <span className="font-bold text-accent mt-0.5">&minus;</span>
+                                <span className="font-sans text-sm text-text-secondary leading-relaxed">{c}</span>
+                              </li>
+                            ))}
+                          </ul>
                         </div>
-                        <ul className="space-y-4">
-                          {gaps.map((g, i) => (
-                            <li key={i} className="flex items-start gap-3">
-                              <span className="w-1.5 h-1.5 rounded-full bg-ink-900 mt-2 shrink-0"></span>
-                              <span className="font-sans text-sm text-text-secondary leading-relaxed">{g}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
+                      )}
+
+                      {/* Opportunities (formerly Gaps) */}
+                      {gaps.length > 0 && (
+                        <div>
+                          <div className="flex items-center gap-2 mb-4">
+                            <div className="w-6 h-6 rounded-full bg-blue-100 flex items-center justify-center">
+                              <ArrowRight className="w-3 h-3 text-blue-600" />
+                            </div>
+                            <h4 className="font-display text-xl text-ink-900">Opportunities</h4>
+                          </div>
+                          <ul className="space-y-3">
+                            {gaps.map((g, i) => (
+                              <li key={i} className="flex items-start gap-2">
+                                <span className="w-1.5 h-1.5 rounded-full bg-blue-600 mt-1.5 shrink-0"></span>
+                                <span className="font-sans text-sm text-text-secondary leading-relaxed">{g}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )}
 
