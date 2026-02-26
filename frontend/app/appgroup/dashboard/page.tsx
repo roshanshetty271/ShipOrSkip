@@ -535,12 +535,11 @@ function DashboardContent() {
 
                 {/* Verdict */}
                 {getVerdict() && (
-                  <div className="bg-white rounded-2xl p-8 sm:p-12 border border-border/50 shadow-sm relative overflow-hidden group">
-                    <div className="absolute top-0 left-0 w-full h-1 bg-accent-green scale-x-0 group-hover:scale-x-100 origin-left transition-transform duration-500"></div>
-                    <span className="inline-block px-3 py-1 bg-accent-green/10 text-accent-green font-mono text-[10px] uppercase tracking-[0.2em] mb-6 rounded-full border border-accent-green/20">
+                  <div className="mb-4">
+                    <span className="inline-block px-3 py-1 bg-accent-green/10 text-accent-green font-mono text-[10px] uppercase tracking-[0.2em] mb-4 rounded-full border border-accent-green/20">
                       Executive Verdict
                     </span>
-                    <p className="font-display text-3xl lg:text-5xl leading-tight text-ink-900 max-w-4xl text-balance">{getVerdict()}</p>
+                    <p className="font-display text-2xl lg:text-4xl leading-tight text-ink-900 text-balance">{getVerdict()}</p>
                   </div>
                 )}
 
@@ -553,7 +552,7 @@ function DashboardContent() {
                         {competitors.length} Found
                       </span>
                     </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 w-full">
+                    <div className="grid grid-cols-1 gap-6 w-full">
                       {competitors.map((c, i) => (
                         <div key={i} className="group flex flex-col bg-white rounded-2xl p-6 border border-border/50 hover:border-accent/30 hover:shadow-md transition-all duration-300 relative overflow-hidden">
                           <div className="absolute top-0 left-0 w-1 h-full bg-accent scale-y-0 group-hover:scale-y-100 origin-top transition-transform duration-500 ease-out"></div>
@@ -697,38 +696,45 @@ function DashboardContent() {
                     </div>
 
                     <div className="grid grid-cols-1 gap-4">
-                      {(!user ? extraSources.slice(0, 3) : (showAllSources ? extraSources : extraSources.slice(0, 5))).map((s, i) => (
-                        <a
-                          key={i}
-                          href={s.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className={`bg-white rounded-xl p-5 border border-border/50 transition-all duration-300 group ${!user ? 'blur-[4px] pointer-events-none opacity-60' : 'hover:border-ink-900/30 hover:shadow-md'}`}
-                        >
-                          <div className="flex items-start justify-between gap-4">
-                            <div className="min-w-0">
-                              <div className="flex items-center gap-3 mb-2">
-                                <SourceBadge type={s.source_type} />
-                                <h4 className="font-display text-xl text-ink-900 truncate group-hover:text-accent-green transition-colors">{s.title}</h4>
+                      {extraSources.slice(0, !user ? (extraSources.length > 5 ? 7 : 5) : (showAllSources ? extraSources.length : 5)).map((s, i) => {
+                        const isBlurred = !user && extraSources.length > 5 && i >= 5;
+                        return (
+                          <a
+                            key={i}
+                            href={isBlurred ? "#" : s.url}
+                            target={isBlurred ? "_self" : "_blank"}
+                            rel="noopener noreferrer"
+                            className={`bg-white rounded-xl p-5 border border-border/50 transition-all duration-300 group ${isBlurred ? 'blur-[4px] pointer-events-none opacity-60 select-none' : 'hover:border-ink-900/30 hover:shadow-md'}`}
+                          >
+                            <div className="flex items-start justify-between gap-4">
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-3 mb-2">
+                                  <SourceBadge type={s.source_type} />
+                                  <h4 className="font-display text-xl text-ink-900 truncate group-hover:text-accent-green transition-colors">
+                                    {isBlurred ? "Market Intelligence Data Source" : s.title}
+                                  </h4>
+                                </div>
+                                <p className="text-sm font-sans text-text-secondary line-clamp-2 leading-relaxed">
+                                  {isBlurred ? "This is a locked source containing deep market analysis, sentiment data, or a key competitor link. Create a free account to unlock this intelligence and view the full URL." : s.snippet}
+                                </p>
                               </div>
-                              <p className="text-sm font-sans text-text-secondary line-clamp-2 leading-relaxed">{s.snippet}</p>
+                              <ExternalLink className="w-4 h-4 text-border-strong group-hover:text-accent-green shrink-0 transition-colors" />
                             </div>
-                            <ExternalLink className="w-4 h-4 text-border-strong group-hover:text-accent-green shrink-0 transition-colors" />
-                          </div>
-                        </a>
-                      ))}
+                          </a>
+                        );
+                      })}
                     </div>
 
-                    {!user && (
+                    {!user && extraSources.length > 5 && (
                       <div className="absolute inset-x-0 bottom-0 h-full max-h-[400px] flex flex-col items-center justify-end pb-12 bg-gradient-to-t from-background via-background/90 to-transparent z-10">
                         <div className="bg-white/90 backdrop-blur-md p-8 rounded-2xl shadow-lg border border-border/50 flex flex-col items-center max-w-sm text-center">
                           <div className="w-12 h-12 rounded-full bg-background-raised flex items-center justify-center mb-4 border border-border-strong">
                             <Lock className="w-5 h-5 text-ink-900" />
                           </div>
-                          <h4 className="font-display text-2xl text-ink-900 mb-2">Unlock {extraSources.length} More Sources</h4>
+                          <h4 className="font-display text-2xl text-ink-900 mb-2">Get {extraSources.length - 5} More Sources</h4>
                           <p className="font-sans text-sm text-text-secondary mb-6">Create a free account to view the full raw intelligence data, export to PDF, and chat with your research.</p>
                           <Link href="/auth/login?returnTo=/appgroup/dashboard" className="btn-primary w-full py-3 rounded-full text-sm">
-                            Sign In to Unlock
+                            Sign In for More Benefits
                           </Link>
                         </div>
                       </div>
@@ -793,7 +799,7 @@ function DashboardContent() {
               <Zap className="w-3 h-3 fill-accent-green" /> Validation Complete
             </span>
             <h3 className="font-display text-3xl font-medium text-ink-900 mb-8 leading-tight pr-8">
-              Sign In To Unlock Your Results
+              Sign In To Get More Benefits
             </h3>
 
             <div className="space-y-4 mb-8">
