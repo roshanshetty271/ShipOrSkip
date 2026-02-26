@@ -428,7 +428,7 @@ function DashboardContent() {
 
           {/* Premium Input Area */}
           <div className="w-full bg-white relative py-12 lg:py-16 border-b border-border/50 shadow-sm">
-            <div className="max-w-4xl mx-auto px-6 sm:px-8">
+            <div className="max-w-7xl mx-auto px-6 sm:px-8">
               <form onSubmit={handleAnalyze} className="flex flex-col relative w-full group">
 
                 <div className="bg-white border border-border/50 shadow-sm transition-all duration-300 focus-within:border-accent-green/50 focus-within:shadow-md rounded-xl overflow-hidden mb-6">
@@ -508,7 +508,7 @@ function DashboardContent() {
             </div>
           </div>
 
-          <div className="w-full max-w-4xl mx-auto flex flex-col flex-grow px-4 sm:px-8">
+          <div className="w-full max-w-7xl mx-auto flex flex-col flex-grow px-4 sm:px-6 lg:px-8">
 
             {/* Premium Loading State */}
             {loading && (
@@ -554,7 +554,7 @@ function DashboardContent() {
                     <span className="inline-block px-3 py-1 bg-accent-green/10 text-accent-green font-mono text-[10px] uppercase tracking-[0.2em] mb-4 rounded-full border border-accent-green/20">
                       Executive Verdict
                     </span>
-                    <p className="font-display text-2xl lg:text-4xl leading-tight text-ink-900 text-balance">{getVerdict()}</p>
+                    <p className="font-display text-xl lg:text-2xl leading-relaxed text-ink-900">{getVerdict()}</p>
                   </div>
                 )}
 
@@ -750,15 +750,15 @@ function DashboardContent() {
                     </div>
 
                     {!user && extraSources.length > 5 && (
-                      <div className="absolute inset-x-0 bottom-0 h-full max-h-[400px] flex flex-col items-center justify-end pb-12 bg-gradient-to-t from-background via-background/90 to-transparent z-10">
-                        <div className="bg-white/90 backdrop-blur-md p-8 rounded-2xl shadow-lg border border-border/50 flex flex-col items-center max-w-sm text-center">
-                          <div className="w-12 h-12 rounded-full bg-background-raised flex items-center justify-center mb-4 border border-border-strong">
+                      <div className="absolute inset-x-0 bottom-0 h-[280px] flex flex-col items-center justify-end pb-[2px] bg-gradient-to-t from-background via-background/90 to-transparent z-10">
+                        <div className="bg-white/95 backdrop-blur-md p-6 sm:p-8 rounded-2xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] border border-border/50 flex flex-col items-center max-w-md w-[calc(100%-2rem)] text-center mb-6">
+                          <div className="w-12 h-12 rounded-full bg-background-raised flex items-center justify-center mb-4 border border-border/50">
                             <Lock className="w-5 h-5 text-ink-900" />
                           </div>
-                          <h4 className="font-display text-2xl text-ink-900 mb-2">Get {extraSources.length - 5} More Sources</h4>
-                          <p className="font-sans text-sm text-text-secondary mb-6">Create a free account to view the full raw intelligence data, export to PDF, and chat with your research.</p>
-                          <Link href="/auth/login?returnTo=/appgroup/dashboard" className="btn-primary w-full py-3 rounded-full text-sm">
-                            Sign In for More Benefits
+                          <h4 className="font-display text-2xl text-ink-900 mb-2">Unlock {extraSources.length - 5}+ Sources</h4>
+                          <p className="font-sans text-sm text-text-secondary mb-6 px-4">Create a free account to view the full raw intelligence data, export to PDF, and chat with your research.</p>
+                          <Link href="/auth/login?returnTo=/appgroup/dashboard" className="btn-primary w-full py-3.5 rounded-full text-sm font-medium">
+                            Sign In for Free Validation
                           </Link>
                         </div>
                       </div>
