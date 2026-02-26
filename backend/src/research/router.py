@@ -81,12 +81,12 @@ async def _get_signed_in_remaining(user: dict) -> dict:
         return {"remaining_fast": FREE_FAST_DAILY, "remaining_deep": FREE_DEEP_DAILY, "tier": "free",
                 "fast_limit": FREE_FAST_DAILY, "deep_limit": FREE_DEEP_DAILY}
     try:
-        profile = sb.table("profiles").select("tier, deep_research_count, last_reset_date").eq("id", user["id"]).single().execute()
-        if not profile.data:
+        profile = sb.table("profiles").select("tier, deep_research_count, last_reset_date").eq("id", user["id"]).execute()
+        if not profile.data or len(profile.data) == 0:
             return {"remaining_fast": FREE_FAST_DAILY, "remaining_deep": FREE_DEEP_DAILY, "tier": "free",
                     "fast_limit": FREE_FAST_DAILY, "deep_limit": FREE_DEEP_DAILY}
 
-        data = profile.data
+        data = profile.data[0]
         tier = data.get("tier", "free")
 
         if tier == "premium":
@@ -178,10 +178,10 @@ async def _check_signed_in_deep_limit(user: dict, settings: Settings):
     if not sb:
         return
     try:
-        profile = sb.table("profiles").select("deep_research_count, last_reset_date, tier").eq("id", user["id"]).single().execute()
-        if not profile.data:
+        profile = sb.table("profiles").select("deep_research_count, last_reset_date, tier").eq("id", user["id"]).execute()
+        if not profile.data or len(profile.data) == 0:
             return
-        data = profile.data
+        data = profile.data[0]
         if data.get("tier") == "premium":
             return
         today = date.today().isoformat()
@@ -301,7 +301,8 @@ async def analyze_fast(
 ):
     if not settings.openai_api_key:
         raise HTTPException(status_code=503, detail="OpenAI API key not configured")
-    await _check_turnstile(req.turnstile_token, settings)
+    if not user:
+        await _check_turnstile(req.turnstile_token, settings)
 
     # Rate limit check
     if user:
@@ -339,7 +340,8 @@ async def analyze_deep(
 ):
     if not settings.openai_api_key:
         raise HTTPException(status_code=503, detail="OpenAI API key not configured")
-    await _check_turnstile(req.turnstile_token, settings)
+    if not user:
+        await _check_turnstile(req.turnstile_token, settings)
 
     # Rate limit check
     if user:

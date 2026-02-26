@@ -4,24 +4,46 @@
 
 @import url('https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&display=swap');
 
-:root {
-  --font-display: 'Instrument Serif', Georgia, serif;
-  --font-body: var(--font-sans), system-ui, sans-serif;
-  --font-mono: var(--font-mono), monospace;
-
-  /* Color Palette */
-  --bg: #fafaf8;
-  --bg-raised: #ffffff;
-  --bg-sunken: #f4f4f0;
-  --text-primary: #111110;
-  --text-secondary: #737373;
-  --text-tertiary: #a3a3a0;
-  --accent: #d84040;
-  --border: #e8e8e4;
-  --border-strong: #d1d1cc;
-}
-
 @layer base {
+  :root {
+    --font-display: 'Instrument Serif', Georgia, serif;
+    --font-body: var(--font-sans), system-ui, sans-serif;
+    --font-mono: var(--font-mono), monospace;
+
+    /* The brutalist palette */
+    --background: #fafaf8;
+    /* Stark off-white paper */
+    --background-raised: #f1f1ef;
+    /* Slightly darker for structural blocks */
+    --background-sunken: #ffffff;
+    /* Pure white for input fields / highlights */
+
+    --ink-900: #0a0a0a;
+    /* Almost pure black */
+    --ink-800: #1a1a1a;
+
+    --text-primary: var(--ink-900);
+    --text-secondary: #4a4a4a;
+    --text-tertiary: #8a8a8a;
+
+    --primary: var(--ink-900);
+    --secondary: #4a4a4a;
+
+    --accent: #d84040;
+    /* Skip Red */
+    --accent-green: #15803d;
+    /* Ship Green */
+
+    --border: #e0e0dc;
+    /* Subtle grid line */
+    --border-strong: #0a0a0a;
+    /* Brutal division line */
+
+    /* Snappy, mechanical animation curves */
+    --ease-expo: cubic-bezier(0.16, 1, 0.3, 1);
+    --ease-smooth: cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
   html {
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
@@ -29,9 +51,7 @@
   }
 
   body {
-    @apply bg-background text-primary font-sans;
-    background-color: var(--bg);
-    color: var(--text-primary);
+    @apply bg-background text-primary antialiased selection:bg-ink-900 selection:text-white;
   }
 
   h1,
@@ -49,23 +69,20 @@
   }
 
   ::selection {
-    @apply bg-ink text-white;
+    @apply bg-ink-900 text-white;
   }
 }
 
 @layer components {
 
   /* Buttons — minimal, strict, intentional */
+  /* Sharp, unyielding buttons */
   .btn-primary {
-    @apply inline-flex items-center justify-center px-6 py-2.5 text-sm font-medium bg-ink-900 text-white rounded-[2px] transition-all duration-200;
-  }
-
-  .btn-primary:hover {
-    @apply opacity-80;
+    @apply inline-flex items-center justify-center px-6 py-3 text-[13px] uppercase tracking-[0.1em] font-medium bg-ink-900 text-white rounded-none border border-ink-900 hover:bg-white hover:text-ink-900 transition-colors duration-200;
   }
 
   .btn-primary:active {
-    @apply scale-[0.99];
+    @apply scale-[0.98] bg-gray-100;
   }
 
   .btn-primary:disabled {
@@ -73,24 +90,11 @@
   }
 
   .btn-secondary {
-    @apply inline-flex items-center justify-center px-6 py-2.5 text-sm font-medium bg-transparent text-ink border border-border-strong rounded-[2px] transition-all duration-200 relative overflow-hidden z-10;
-  }
-
-  .btn-secondary::before {
-    content: '';
-    @apply absolute inset-0 bg-ink-900 transition-transform duration-[220ms] ease-out z-[-1] scale-x-0 origin-right;
-  }
-
-  .btn-secondary:hover {
-    @apply text-white border-ink-900;
-  }
-
-  .btn-secondary:hover::before {
-    @apply scale-x-100 origin-left;
+    @apply inline-flex items-center justify-center px-5 py-2.5 text-[13px] uppercase tracking-[0.1em] font-medium bg-transparent text-ink-900 border border-ink-900 rounded-none hover:bg-ink-900 hover:text-white transition-colors duration-200;
   }
 
   .btn-secondary:active {
-    @apply scale-[0.99];
+    @apply scale-[0.98];
   }
 
   .btn-secondary:disabled {

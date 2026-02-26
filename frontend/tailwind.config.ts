@@ -40,6 +40,7 @@ const config: Config = {
           DEFAULT: "var(--accent)",
           light: "#ff6b6b",
           dark: "#b83030",
+          green: "var(--accent-green)",
         },
       },
       fontSize: {
@@ -58,8 +59,8 @@ const config: Config = {
         "8xl": ["6rem", { lineHeight: "0.95", letterSpacing: "-0.04em" }],
       },
       animation: {
-        "fade-in": "fadeIn 0.5s ease-out forwards",
-        "slide-up": "slideUp 0.5s ease-out forwards",
+        "fade-in": "fadeIn 0.5s var(--ease-expo) forwards",
+        "slide-up": "slideUp 0.5s var(--ease-expo) forwards",
       },
       keyframes: {
         fadeIn: {
@@ -70,6 +71,10 @@ const config: Config = {
           "0%": { opacity: "0", transform: "translateY(12px)" },
           "100%": { opacity: "1", transform: "translateY(0)" },
         },
+      },
+      transitionTimingFunction: {
+        "ease-out": "var(--ease-smooth)",
+        "ease-in-out": "var(--ease-expo)",
       },
     },
   },

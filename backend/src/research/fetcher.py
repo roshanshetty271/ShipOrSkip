@@ -4,6 +4,7 @@ ShipOrSkip Fetcher Service
 - GitHub README fetching (free, no auth needed)
 - Deep page fetching via trafilatura (free, handles JS-heavy sites)
 - Domain blocklist (skip garbage)
+- Title blocklist (skip "best X alternatives" blog posts)
 - URL ranking (prioritize high-value sources)
 - Context assembly with source-priority budgeting
 """
@@ -42,42 +43,75 @@ DOMAIN_BLOCKLIST = {
     # Generic listicles / low-signal
     "forbes.com", "businessinsider.com", "entrepreneur.com",
     "inc.com", "fastcompany.com", "wired.com",
-    # Aggregators (list everything, no real signal)
+    # Aggregators
     "g2.com", "capterra.com", "alternativeto.com",
     "slant.co", "sourceforge.net", "softwareadvice.com",
+    # Review/comparison sites (not competitors themselves)
+    "futurepedia.io", "pineapplebuilder.com", "bubble.io",
+    "flowjam.com", "theresanaiforthat.com",
     # Job boards
     "indeed.com", "glassdoor.com", "linkedin.com",
-    # Social media (snippets are enough, pages are blocked)
+    # Social media
     "twitter.com", "x.com", "facebook.com", "instagram.com",
     # Paywalled
     "nytimes.com", "wsj.com", "ft.com", "bloomberg.com",
     # Heavy anti-bot
     "amazon.com", "imdb.com",
-    # Generic tech news (too broad)
+    # Generic tech news
     "techcrunch.com", "theverge.com", "zdnet.com", "cnet.com",
-    # Wikipedia (LLM already knows this)
+    # Wikipedia
     "wikipedia.org",
-    # Medium (mostly fluff)
+    # Medium
     "medium.com",
+    # YouTube (not competitors)
+    "youtube.com",
+    # App stores (listings, not the apps themselves)
+    "play.google.com", "apps.apple.com",
+    # Your own projects
+    "worth-the-watch.vercel.app", "shiporskip.vercel.app",
+    "ship-or-skip-peach.vercel.app",
 }
 
 # High-value domains get priority
 HIGH_VALUE_DOMAINS = {
     "github.com", "producthunt.com", "news.ycombinator.com",
-    "indiehackers.com", "devpost.com", "alternativeto.com",
+    "indiehackers.com", "devpost.com",
     "reddit.com", "dev.to", "hashnode.dev",
 }
+
+# Title patterns that indicate blog posts / listicles, not actual products
+TITLE_BLOCKLIST_PATTERNS = [
+    r"best .+ alternatives",
+    r"\d+ best .+",
+    r"top \d+",
+    r"how to build",
+    r"how to create",
+    r"alternatives for",
+    r"vs\b",  # "X vs Y" comparison articles
+    r"reviews?:.+pricing",
+    r"reviews?:.+alternatives",
+    r"ultimate guide",
+    r"complete guide",
+]
 
 
 def is_blocked(url: str) -> bool:
     """Check if URL domain is in blocklist."""
     try:
         domain = url.split("//")[-1].split("/")[0].lower()
-        # Remove www.
         domain = domain.replace("www.", "")
         return any(domain.endswith(blocked) for blocked in DOMAIN_BLOCKLIST)
     except Exception:
         return False
+
+
+def is_title_blocked(title: str) -> bool:
+    """Check if title matches a blog/listicle pattern."""
+    lower = title.lower().strip()
+    for pattern in TITLE_BLOCKLIST_PATTERNS:
+        if re.search(pattern, lower):
+            return True
+    return False
 
 
 def url_score(url: str) -> int:
@@ -87,24 +121,17 @@ def url_score(url: str) -> int:
     except Exception:
         return 0
 
-    # GitHub repos (not just github.com pages)
     if "github.com" in domain and url.count("/") >= 4:
         return 100
-
-    # Product Hunt launch pages
     if "producthunt.com" in domain and "/posts/" in url:
         return 95
-
-    # High-value communities
+    if "producthunt.com" in domain and "/products/" in url:
+        return 95
     for hv in HIGH_VALUE_DOMAINS:
         if domain.endswith(hv):
             return 80
-
-    # Actual product/app domains (short paths = likely homepage)
     if url.count("/") <= 3:
         return 60
-
-    # Everything else
     return 30
 
 
@@ -113,7 +140,6 @@ def url_score(url: str) -> int:
 # ═══════════════════════════════════════
 
 def _extract_github_repos(urls: list[str]) -> list[tuple[str, str]]:
-    """Extract (owner, repo) tuples from GitHub URLs."""
     repos = []
     seen = set()
     for url in urls:
@@ -128,7 +154,6 @@ def _extract_github_repos(urls: list[str]) -> list[tuple[str, str]]:
 
 
 async def fetch_github_readmes(urls: list[str], max_repos: int = 8) -> dict[str, str]:
-    """Fetch README.md for GitHub repos found in URLs. Returns {repo_slug: content}."""
     repos = _extract_github_repos(urls)[:max_repos]
     if not repos:
         return {}
@@ -137,15 +162,11 @@ async def fetch_github_readmes(urls: list[str], max_repos: int = 8) -> dict[str,
     readmes = {}
 
     async with httpx.AsyncClient(timeout=8.0) as http:
-        tasks = []
-        for owner, repo in repos:
-            tasks.append(_fetch_single_readme(http, owner, repo))
-
+        tasks = [_fetch_single_readme(http, owner, repo) for owner, repo in repos]
         results = await asyncio.gather(*tasks, return_exceptions=True)
         for (owner, repo), result in zip(repos, results):
             slug = f"{owner}/{repo}"
             if isinstance(result, str) and len(result) > 100:
-                # Truncate massive READMEs
                 readmes[slug] = result[:3000]
                 _log(f"    ✓ {slug}: {len(result)} chars (truncated to 3000)")
             elif isinstance(result, str):
@@ -157,7 +178,6 @@ async def fetch_github_readmes(urls: list[str], max_repos: int = 8) -> dict[str,
 
 
 async def _fetch_single_readme(http: httpx.AsyncClient, owner: str, repo: str) -> str:
-    """Try main branch, then master branch."""
     for branch in ("main", "master"):
         url = f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}/README.md"
         try:
@@ -174,20 +194,12 @@ async def _fetch_single_readme(http: httpx.AsyncClient, owner: str, repo: str) -
 # ═══════════════════════════════════════
 
 async def deep_fetch_pages(
-    urls: list[str],
-    max_pages: int = 8,
-    race_target: int = 5,
+    urls: list[str], max_pages: int = 8, race_target: int = 5,
 ) -> dict[str, str]:
-    """
-    Fetch full page content for URLs using trafilatura.
-    Implements "Race to N" — cancels remaining once we have enough.
-    Returns {url: extracted_text}.
-    """
     if not HAS_TRAFILATURA:
         _log("  trafilatura not installed — skipping deep fetch")
         return {}
 
-    # Filter and rank
     ranked = [(url, url_score(url)) for url in urls if not is_blocked(url)]
     ranked.sort(key=lambda x: -x[1])
     targets = [url for url, _ in ranked[:max_pages]]
@@ -197,33 +209,24 @@ async def deep_fetch_pages(
 
     _log(f"  Deep fetching {len(targets)} pages (race to {race_target})...")
     results = {}
-    sem = asyncio.Semaphore(5)  # Max 5 concurrent
+    sem = asyncio.Semaphore(5)
 
     async def fetch_one(url: str) -> tuple[str, str]:
         async with sem:
             try:
                 async with httpx.AsyncClient(timeout=10.0) as http:
-                    resp = await http.get(
-                        url,
-                        headers={"User-Agent": _random_ua()},
-                        follow_redirects=True,
-                    )
+                    resp = await http.get(url, headers={"User-Agent": _random_ua()}, follow_redirects=True)
                     if resp.status_code == 200:
                         text = await asyncio.to_thread(
-                            trafilatura.extract,
-                            resp.text,
-                            include_comments=False,
-                            include_tables=False,
+                            trafilatura.extract, resp.text,
+                            include_comments=False, include_tables=False,
                         )
                         return url, (text or "")[:3000]
             except Exception as e:
                 _log(f"    ✗ {url[:50]}: {e}")
             return url, ""
 
-    # Launch all tasks
     tasks = [asyncio.create_task(fetch_one(url)) for url in targets]
-
-    # Race to N
     completed = 0
     for coro in asyncio.as_completed(tasks):
         url, content = await coro
@@ -232,10 +235,8 @@ async def deep_fetch_pages(
             completed += 1
             _log(f"    ✓ [{completed}/{race_target}] {url[:60]} ({len(content)} chars)")
             if completed >= race_target:
-                # Cancel remaining
                 for t in tasks:
-                    if not t.done():
-                        t.cancel()
+                    if not t.done(): t.cancel()
                 _log(f"    Reached {race_target} — cancelled remaining tasks")
                 break
         else:
@@ -249,25 +250,16 @@ async def deep_fetch_pages(
 # ═══════════════════════════════════════
 
 def assemble_deep_context(
-    tavily_results: list[dict],
-    github_readmes: dict[str, str],
-    ph_results: list[str],
-    deep_pages: dict[str, str],
+    tavily_results: list[dict], github_readmes: dict[str, str],
+    ph_results: list[str], deep_pages: dict[str, str],
     max_chars: int = 12000,
 ) -> str:
-    """
-    Assemble context with source-priority budgeting.
-    40% GitHub READMEs + PH
-    40% Deep-fetched competitor pages
-    20% Tavily snippets (market context)
-    """
     github_budget = int(max_chars * 0.40)
     competitor_budget = int(max_chars * 0.40)
     snippet_budget = int(max_chars * 0.20)
 
     sections = []
 
-    # --- GitHub READMEs + PH (40%) ---
     gh_section = []
     chars_used = 0
     for slug, readme in github_readmes.items():
@@ -276,38 +268,30 @@ def assemble_deep_context(
             chunk = chunk[:github_budget - chars_used]
         gh_section.append(chunk)
         chars_used += len(chunk)
-        if chars_used >= github_budget:
-            break
+        if chars_used >= github_budget: break
 
-    # Add PH results to this budget
     for ph in ph_results[:5]:
-        if chars_used + len(ph) > github_budget:
-            break
+        if chars_used + len(ph) > github_budget: break
         gh_section.append(ph)
         chars_used += len(ph)
 
     if gh_section:
         sections.append("## GitHub Repos & Product Hunt Launches\n" + "\n".join(gh_section))
 
-    # --- Deep-fetched pages (40%) ---
     deep_section = []
     chars_used = 0
     for url, content in deep_pages.items():
-        # Skip GitHub pages (already in README section)
-        if "github.com" in url:
-            continue
+        if "github.com" in url: continue
         chunk = f"### {url}\n{content}\n"
         if chars_used + len(chunk) > competitor_budget:
             chunk = chunk[:competitor_budget - chars_used]
         deep_section.append(chunk)
         chars_used += len(chunk)
-        if chars_used >= competitor_budget:
-            break
+        if chars_used >= competitor_budget: break
 
     if deep_section:
         sections.append("## Competitor Pages (Full Content)\n" + "\n".join(deep_section))
 
-    # --- Tavily snippets as market context (20%) ---
     snippet_section = []
     chars_used = 0
     for r in tavily_results[:15]:
@@ -315,8 +299,7 @@ def assemble_deep_context(
         url = r.get("url", "")
         content = (r.get("content", "") or "")[:200]
         line = f"- {title} ({url}): {content}"
-        if chars_used + len(line) > snippet_budget:
-            break
+        if chars_used + len(line) > snippet_budget: break
         snippet_section.append(line)
         chars_used += len(line)
 
@@ -328,25 +311,16 @@ def assemble_deep_context(
     return combined
 
 
-def assemble_fast_context(
-    tavily_results: list[dict],
-    max_chars: int = 6000,
-) -> str:
-    """
-    Assemble context for fast mode.
-    Prioritizes results with raw_content, uses snippets as fallback.
-    Filters blocked domains.
-    """
-    # Filter and dedupe
+def assemble_fast_context(tavily_results: list[dict], max_chars: int = 6000) -> str:
     seen = set()
     filtered = []
     for r in tavily_results:
         url = r.get("url", "").lower().rstrip("/")
-        if url and url not in seen and not is_blocked(r.get("url", "")):
+        title = r.get("title", "")
+        if url and url not in seen and not is_blocked(r.get("url", "")) and not is_title_blocked(title):
             seen.add(url)
             filtered.append(r)
 
-    # Sort: results with raw_content first, then by URL score
     filtered.sort(key=lambda r: (
         -len(r.get("raw_content", "") or ""),
         -url_score(r.get("url", "")),
@@ -357,19 +331,14 @@ def assemble_fast_context(
     for r in filtered[:15]:
         title = r.get("title", "")
         url = r.get("url", "")
-
-        # Use raw_content if available (truncated), else snippet
         raw = r.get("raw_content", "") or ""
         snippet = r.get("content", "") or ""
         content = raw[:500] if len(raw) > 100 else snippet[:300]
-
         line = f"- {title} ({url})\n  {content}"
-        if chars_used + len(line) > max_chars:
-            break
+        if chars_used + len(line) > max_chars: break
         lines.append(line)
         chars_used += len(line)
 
     if not lines:
         return "No search results available."
-
     return "\n\n".join(lines)

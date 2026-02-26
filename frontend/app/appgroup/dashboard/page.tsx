@@ -12,6 +12,11 @@ import {
   Github,
   Globe,
   Lock,
+  MessageSquare,
+  FileText,
+  Clock,
+  StickyNote,
+  X,
 } from "lucide-react";
 import Link from "next/link";
 import { useAuth } from "@/hooks/use-auth";
@@ -37,6 +42,7 @@ interface CompetitorItem {
   description: string;
   differentiator?: string;
   url?: string;
+  threat_level?: string;
 }
 
 interface RawSource {
@@ -102,6 +108,8 @@ function DashboardContent() {
   const [showAllSources, setShowAllSources] = useState(false);
   const turnstileRef = useRef<any>(null);
   const [limits, setLimits] = useState<any>(null);
+  const [showSignInModal, setShowSignInModal] = useState(false);
+  const hasShownModal = useRef(false);
 
   // Save pending results to session storage so they survive login redirects
   useEffect(() => {
@@ -124,6 +132,16 @@ function DashboardContent() {
       } catch { }
     }
   }, []);
+
+  useEffect(() => {
+    const newIdea = searchParams.get("idea");
+    if (newIdea && newIdea !== idea) {
+      setIdea(newIdea);
+      setResult(null);
+      setError("");
+      setShowAllSources(false);
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     const fetchLimits = async () => {
@@ -184,12 +202,8 @@ function DashboardContent() {
     e.preventDefault();
     if (!idea.trim() || loading) return;
 
-    if (!verified) {
+    if (!user && (!verified || !token)) {
       setError("Please complete verification");
-      return;
-    }
-    if (!token) {
-      setError("Refreshing security check... Please try again in a second.");
       return;
     }
 
@@ -208,8 +222,15 @@ function DashboardContent() {
           (data: Record<string, unknown>) => {
             setResult(data);
             if (data.limits) setLimits(data.limits);
+
+            if (!user && !hasShownModal.current) {
+              hasShownModal.current = true;
+              setTimeout(() => setShowSignInModal(true), 500);
+            }
+
             setLoading(false);
             if (user) loadHistory();
+            turnstileRef.current?.reset();
           },
           (err: any) => {
             if (err?.response?.status === 429 && err?.response?.data?.detail) {
@@ -220,14 +241,13 @@ function DashboardContent() {
               setError(err instanceof Error ? err.message : typeof err === "string" ? err : "Research failed.");
             }
             setLoading(false);
+            turnstileRef.current?.reset();
           },
           token
         );
       } catch (err: unknown) {
         setError(err instanceof Error ? err.message : "Research failed.");
         setLoading(false);
-      } finally {
-        setToken("");
         turnstileRef.current?.reset();
       }
     } else {
@@ -236,6 +256,12 @@ function DashboardContent() {
         const data = await analyzeFast(idea, undefined, token);
         setResult(data);
         if (data.limits) setLimits(data.limits);
+
+        if (!user && !hasShownModal.current) {
+          hasShownModal.current = true;
+          setTimeout(() => setShowSignInModal(true), 500);
+        }
+
         if (user) loadHistory();
       } catch (err: any) {
         if (err?.response?.status === 429 && err?.response?.data?.detail) {
@@ -247,7 +273,6 @@ function DashboardContent() {
         }
       } finally {
         setLoading(false);
-        setToken("");
         turnstileRef.current?.reset();
       }
     }
@@ -289,158 +314,162 @@ function DashboardContent() {
   const rawSources = getField("raw_sources") as RawSource[];
 
   // Sources that aren't already shown as competitors
+  const competitorNames = new Set(competitors.map(c => c.name?.toLowerCase().trim()));
   const competitorUrls = new Set(competitors.map(c => c.url?.toLowerCase().replace(/\/$/, "") || ""));
-  const extraSources = rawSources.filter(s => !competitorUrls.has(s.url.toLowerCase().replace(/\/$/, "")));
+  const extraSources = rawSources.filter((s: RawSource) =>
+    !competitorUrls.has(s.url.toLowerCase().replace(/\/$/, "")) &&
+    !competitorNames.has(s.title?.toLowerCase().trim())
+  );
 
   const initials = user?.email ? user.email[0].toUpperCase() : "?";
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Header */}
-      <header className="bg-background-raised border-b border-border sticky top-0 z-40">
-        <div className="layout-container h-16 flex items-center justify-between">
-          <Link href="/" className="font-display text-2xl tracking-normal">
-            <span className="text-green-600">Ship</span>Or<span className="text-accent">Skip</span>
+      {/* Premium Header */}
+      <header className="border-b border-border/50 bg-white/80 backdrop-blur-md sticky top-0 z-40">
+        <div className="w-full h-16 px-4 sm:px-8 flex items-center justify-between max-w-7xl mx-auto">
+          <Link href="/" className="font-display text-2xl tracking-tight leading-none pt-1">
+            <span className="text-accent-green pr-[1px] italic">Ship</span>Or<span className="text-accent pl-[1px] font-sans font-bold tracking-tighter text-[0.8em] uppercase not-italic">Skip</span>
           </Link>
-          <div className="flex items-center gap-6">
+          <div className="flex items-center gap-4 sm:gap-6 font-mono text-[10px] sm:text-xs uppercase tracking-widest">
             {user && (
               <button
                 onClick={() => setShowHistory(!showHistory)}
-                className={`text-sm transition-colors ${showHistory
-                  ? "text-primary font-medium"
-                  : "text-secondary hover:text-primary"
-                  }`}
+                className={`transition-colors px-3 py-1.5 rounded-full border ${showHistory ? "bg-accent-green/10 text-accent-green border-accent-green/20 font-bold" : "text-text-secondary border-transparent hover:text-ink-900 hover:bg-background-raised"}`}
               >
                 History
               </button>
             )}
             {user ? (
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-[2px] bg-ink-900 flex items-center justify-center text-xs font-mono text-white">
+              <div className="flex items-center gap-4">
+                <div className="w-7 h-7 rounded-full bg-accent-green/10 flex items-center justify-center font-mono text-[10px] text-accent-green border border-accent-green/20 font-bold">
                   {initials}
                 </div>
                 <button
                   onClick={handleSignOut}
-                  className="text-xs text-secondary hover:text-primary transition-colors"
+                  className="hover:text-accent transition-colors text-text-tertiary"
                 >
-                  Sign out
+                  Sign Out
                 </button>
               </div>
             ) : (
-              <Link href="/auth/login" className="btn-primary text-xs py-2 px-5">
-                Sign in
-              </Link>
+              <Link href="/auth/login" className="btn-primary text-[10px] py-1.5 px-4 rounded-full">Sign In</Link>
             )}
           </div>
         </div>
       </header>
 
-      <div className="layout-container py-12 flex gap-12">
+      <div className="flex min-h-[calc(100vh-64px)] max-w-7xl mx-auto w-full">
         {/* Sidebar — Research History */}
         {showHistory && user && (
-          <aside className="w-72 shrink-0 hidden lg:block">
-            <div className="flex items-center justify-between mb-6">
-              <p className="text-xs font-mono text-secondary uppercase tracking-widest">
+          <aside className="w-72 shrink-0 hidden lg:flex flex-col border-r border-border/50 bg-background-raised">
+            <div className="flex items-center justify-between p-5 border-b border-border/50">
+              <p className="text-[10px] font-mono text-text-secondary uppercase tracking-[0.2em] font-medium">
                 Past Research
               </p>
-              <button onClick={loadHistory} className="text-secondary hover:text-primary transition-colors">
+              <button onClick={loadHistory} className="text-text-tertiary hover:text-accent-green p-1 transition-colors rounded-full hover:bg-accent-green/10">
                 <RotateCcw className="w-3.5 h-3.5" />
               </button>
             </div>
-            {historyLoading ? (
-              <div className="space-y-4">
-                {[1, 2, 3].map((i) => (
-                  <div
-                    key={i}
-                    className="h-20 bg-background-raised rounded-[2px] border border-border animate-pulse"
-                  />
-                ))}
-              </div>
-            ) : history.length === 0 ? (
-              <p className="text-sm text-secondary">
-                No research yet. Analyze an idea to get started.
-              </p>
-            ) : (
-              <div className="space-y-3 max-h-[70vh] overflow-y-auto pr-2">
-                {history.map((item) => (
-                  <button
-                    key={item.id}
-                    onClick={() => router.push(`/appgroup/research/${item.id}`)}
-                    className="w-full text-left bg-background-raised rounded-[2px] border border-border p-4 hover:border-border-strong transition-colors group"
-                  >
-                    <p className="text-sm font-medium line-clamp-2 mb-3 group-hover:text-primary text-secondary transition-colors">
-                      {item.idea_text}
-                    </p>
-                    <div className="flex items-center gap-2 text-xs font-mono text-text-tertiary">
-                      {item.analysis_type === "deep" ? (
-                        <Search className="w-3 h-3" />
-                      ) : (
-                        <Zap className="w-3 h-3" />
-                      )}
-                      <span className="capitalize">{item.analysis_type}</span>
-                      <span>&middot;</span>
-                      <span>{new Date(item.created_at).toLocaleDateString()}</span>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            )}
+
+            <div className="flex-grow overflow-y-auto">
+              {historyLoading ? (
+                <div className="divide-y divide-border-strong">
+                  {[1, 2, 3].map((i) => (
+                    <div key={i} className="h-24 bg-background-raised animate-pulse" />
+                  ))}
+                </div>
+              ) : history.length === 0 ? (
+                <p className="text-xs font-mono p-4 text-text-tertiary">
+                  No research yet.
+                </p>
+              ) : (
+                <div className="divide-y divide-border/30 p-2">
+                  {history.map((item) => (
+                    <button
+                      key={item.id}
+                      onClick={() => router.push(`/appgroup/research/${item.id}`)}
+                      className="w-full text-left p-3 hover:bg-white rounded-md transition-all group mb-1 block border border-transparent hover:border-border/50 hover:shadow-sm"
+                    >
+                      <p className="text-sm font-sans font-medium line-clamp-2 mb-2 leading-relaxed text-ink-900 group-hover:text-accent-green transition-colors">
+                        {item.idea_text}
+                      </p>
+                      <div className="flex items-center gap-2 text-[10px] font-mono text-text-tertiary uppercase tracking-widest">
+                        {item.analysis_type === "deep" ? <Search className="w-3 h-3 text-accent" /> : <Zap className="w-3 h-3 text-accent-green" />}
+                        <span>{item.analysis_type}</span>
+                        <span className="opacity-50">&middot;</span>
+                        <span>{new Date(item.created_at).toLocaleDateString()}</span>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           </aside>
         )}
 
         {/* Main content */}
-        <main className="flex-1 min-w-0 max-w-5xl w-full">
-          {/* Input */}
-          <div className="card-minimal mb-12 relative overflow-hidden">
-            <form onSubmit={handleAnalyze}>
-              <TextareaAutosize
-                value={idea}
-                onChange={(e) => setIdea(e.target.value.slice(0, 500))}
-                onKeyDown={handleKeyDown}
-                placeholder="Describe your project idea..."
-                minRows={1}
-                maxRows={10}
-                className="w-full bg-transparent resize-none focus:outline-none text-lg mb-6 placeholder:text-text-tertiary leading-relaxed break-all"
-              />
-              <div className="flex items-center justify-between border-t border-border pt-6">
-                <div className="flex gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setMode("fast")}
-                    className={`flex items-center gap-2 px-4 py-2 rounded-[2px] text-sm font-medium transition-all border ${mode === "fast"
-                      ? "bg-ink-900 border-ink-900 text-white"
-                      : "bg-transparent border-transparent text-secondary hover:bg-background-sunken hover:border-border"
-                      }`}
-                  >
-                    <Zap className="w-3.5 h-3.5" /> Fast
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setMode("deep")}
-                    className={`flex items-center gap-2 px-4 py-2 rounded-[2px] text-sm font-medium transition-all border ${mode === "deep"
-                      ? "bg-ink-900 border-ink-900 text-white"
-                      : "bg-transparent border-transparent text-secondary hover:bg-background-sunken hover:border-border"
-                      }`}
-                  >
-                    <Search className="w-3.5 h-3.5" /> Deep Research
-                  </button>
+        <main className="flex-1 w-full bg-background flex flex-col items-center">
+
+          {/* Premium Input Area */}
+          <div className="w-full bg-white relative py-12 lg:py-16 border-b border-border/50 shadow-sm">
+            <div className="max-w-4xl mx-auto px-6 sm:px-8">
+              <form onSubmit={handleAnalyze} className="flex flex-col relative w-full group">
+
+                <div className="bg-white border border-border/50 shadow-sm transition-all duration-300 focus-within:border-accent-green/50 focus-within:shadow-md rounded-xl overflow-hidden mb-6">
+                  <div className="bg-background-raised border-b border-border/50 py-3 px-5 flex items-center justify-between">
+                    <span className="font-mono text-[10px] uppercase tracking-widest font-bold flex items-center gap-2 text-text-secondary"><Zap className="w-3 h-3 text-accent-green fill-accent-green" /> Idea Validation Engine</span>
+                    <span className={`tabular-nums font-mono text-[10px] uppercase tracking-widest ${idea.length > 450 ? 'text-accent font-bold' : 'text-text-tertiary'}`}>
+                      {String(idea.length).padStart(3, '0')}/500
+                    </span>
+                  </div>
+                  <TextareaAutosize
+                    value={idea}
+                    onChange={(e) => setIdea(e.target.value.slice(0, 500))}
+                    onKeyDown={handleKeyDown}
+                    placeholder="Describe your app, tool, or service idea in detail..."
+                    minRows={3}
+                    maxRows={8}
+                    className="w-full bg-transparent p-5 sm:p-6 font-sans text-xl lg:text-2xl leading-relaxed text-ink-900 focus:outline-none transition-colors placeholder:text-text-tertiary resize-none outline-none selection:bg-accent-green selection:text-white"
+                    autoFocus
+                  />
                 </div>
 
-                <div className="flex items-center gap-4 text-xs">
-                  {limits && limits.remaining_fast !== "unlimited" && (
-                    <span className="text-xs font-mono text-text-tertiary">
-                      {mode === "fast"
-                        ? `${limits.remaining_fast} of ${limits.fast_limit} fast left`
-                        : `${limits.remaining_deep} of ${limits.deep_limit} deep left`}
-                      {!user && limits.remaining_fast === 0 && limits.remaining_deep === 0 && (
-                        <> · <Link href="/auth/login" className="text-primary hover:underline">Sign in for more</Link></>
-                      )}
-                    </span>
-                  )}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-6">
+                  <div className="flex gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setMode("fast")}
+                      className={`flex items-center gap-2 px-5 py-2.5 font-mono text-[10px] uppercase tracking-widest transition-all rounded-full ${mode === "fast"
+                        ? "bg-accent-green/10 text-accent-green border border-accent-green/20 font-bold shadow-sm"
+                        : "bg-white border border-border/50 text-text-secondary hover:border-accent-green/30 hover:text-ink-900"
+                        }`}
+                    >
+                      <Zap className="w-3.5 h-3.5" /> Fast
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setMode("deep")}
+                      className={`flex items-center gap-2 px-5 py-2.5 font-mono text-[10px] uppercase tracking-widest transition-all rounded-full ${mode === "deep"
+                        ? "bg-accent/10 text-accent border border-accent/20 font-bold shadow-sm"
+                        : "bg-white border border-border/50 text-text-secondary hover:border-accent/30 hover:text-ink-900"
+                        }`}
+                    >
+                      <Search className="w-3.5 h-3.5" /> Deep
+                    </button>
+                  </div>
 
-                  <div className="flex items-center gap-6">
+                  <div className="flex items-center justify-end gap-6">
+                    {limits && limits.remaining_fast !== "unlimited" && (
+                      <span className="text-[10px] uppercase tracking-[0.2em] font-mono text-text-tertiary">
+                        {mode === "fast"
+                          ? `${limits.remaining_fast} of ${limits.fast_limit} Left`
+                          : `${limits.remaining_deep} of ${limits.deep_limit} Left`}
+                      </span>
+                    )}
+
                     <div
-                      className={`transition-all duration-500 overflow-hidden ${verified ? "opacity-0 max-w-0 max-h-0" : "opacity-100 max-w-[300px] max-h-[65px]"
+                      className={`transition-all duration-500 overflow-hidden ${(verified || user) ? "opacity-0 max-w-0 max-h-0" : "opacity-100 max-w-[300px]"
                         }`}
                     >
                       <Turnstile
@@ -449,286 +478,351 @@ function DashboardContent() {
                         onSuccess={handleTurnstileSuccess}
                       />
                     </div>
-                    <div className="flex items-center gap-4">
-                      <span className="text-xs font-mono text-text-tertiary tabular-nums">
-                        {idea.length}/500
-                      </span>
-                      <button
-                        type="submit"
-                        disabled={loading || !idea.trim() || !verified}
-                        className="btn-primary"
-                      >
-                        {loading ? (
-                          progress
-                        ) : (
-                          <>
-                            Analyze <ArrowRight className="w-3.5 h-3.5 ml-2" />
-                          </>
-                        )}
-                      </button>
-                    </div>
+
+                    <button
+                      type="submit"
+                      disabled={loading || !idea.trim() || (!verified && !user)}
+                      className="btn-primary h-12 px-8 flex items-center justify-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed group/btn hover:shadow-lg transition-all duration-300"
+                    >
+                      {loading ? "Analyzing..." : "Analyze Idea"}
+                      {!loading && <ArrowRight className="w-4 h-4 group-hover/btn:translate-x-1 transition-transform" />}
+                    </button>
                   </div>
                 </div>
-              </div>
-            </form>
+              </form>
+            </div>
           </div>
 
-          {/* Loading state */}
-          {loading && (
-            <div className="card-minimal text-center animate-fade-in flex flex-col items-center justify-center min-h-[200px]">
-              <div className="w-4 h-4 border-2 border-border-strong border-t-ink-900 rounded-full animate-spin mb-4" />
-              <p className="text-sm font-mono text-secondary">{progress}</p>
-            </div>
-          )}
+          <div className="w-full max-w-4xl mx-auto flex flex-col flex-grow px-4 sm:px-8">
 
-          {/* Error state */}
-          {error && !loading && (
-            <div className="bg-white rounded-xl border border-accent/20 p-6 text-center animate-fade-in relative">
-              <p className="text-sm text-accent">{error}</p>
-
-              {!user && error.includes("Sign in") && (
-                <div className="mt-4">
-                  <Link href="/auth/login" className="btn-primary text-xs py-2 px-5 inline-block">
-                    Sign in
-                  </Link>
-                </div>
-              )}
-
-              <button
-                onClick={() => setError("")}
-                className="btn-secondary text-xs mt-4 absolute top-2 right-4 !mt-0"
-              >
-                Dismiss
-              </button>
-            </div>
-          )}
-
-          {/* Results */}
-          {result && !loading && (
-            <div className="space-y-6 animate-slide-up">
-              {/* Verdict */}
-              <div className="card-minimal">
-                <p className="text-xs font-mono text-secondary uppercase tracking-widest mb-4">
-                  Verdict
-                </p>
-                <p className="text-lg leading-relaxed text-primary font-medium">{getVerdict()}</p>
-              </div>
-
-              {/* Competitors + Raw Sources (same card) */}
-              {competitors.length > 0 && (
-                <div className="card-minimal">
-                  <p className="text-xs font-mono text-secondary uppercase tracking-widest mb-6">
-                    Similar Products
+            {/* Premium Loading State */}
+            {loading && (
+              <div className="w-full h-full flex flex-col pt-24 pb-12">
+                <div className="flex flex-col items-center justify-center py-12 mb-4 bg-white rounded-2xl border border-border/50 shadow-sm p-12">
+                  <div className="relative flex items-center justify-center w-16 h-16 mb-8 border-[3px] border-accent-green/20 border-t-accent-green rounded-full animate-spin">
+                  </div>
+                  <p className="text-xs font-mono text-accent-green tracking-widest uppercase mb-4 text-center bg-accent-green/10 px-4 py-1.5 rounded-full border border-accent-green/20 font-bold shadow-sm">
+                    {progress}
                   </p>
-                  <div className="space-y-0">
-                    {competitors.map((c, i) => (
-                      <div
-                        key={i}
-                        className="group flex items-start justify-between py-5 border-b border-border last:border-0 hover:bg-background-sunken -mx-8 px-8 transition-colors"
-                      >
-                        <div className="max-w-[80%]">
-                          <p className="text-base font-medium mb-1">{c.name}</p>
-                          <p className="text-sm text-secondary leading-relaxed">
-                            {c.description}
-                          </p>
+                  <p className="font-sans text-text-tertiary text-sm mt-4 text-center max-w-sm">
+                    Our AI agents are currently scouring the web, analyzing competitors, and generating a custom validation report for your idea.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* Premium Error state */}
+            {error && !loading && (
+              <div className="bg-red-50 border border-red-200 rounded-2xl px-6 py-8 text-center mt-12 shadow-sm">
+                <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4 border border-red-200">
+                  <X className="w-6 h-6 text-accent" />
+                </div>
+                <p className="text-sm font-mono text-accent uppercase tracking-widest font-bold mb-2">Error</p>
+                <p className="font-sans text-ink-900">{error}</p>
+                {!user && error.includes("Sign in") && (
+                  <div className="mt-6">
+                    <Link href="/auth/login" className="btn-primary text-sm py-2.5 px-6 rounded-full inline-block shadow-sm">
+                      Sign in to continue
+                    </Link>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Premium Results Layout */}
+            {result && !loading && (
+              <div className="w-full flex flex-col gap-12 py-12">
+
+                {/* Verdict */}
+                {getVerdict() && (
+                  <div className="bg-white rounded-2xl p-8 sm:p-12 border border-border/50 shadow-sm relative overflow-hidden group">
+                    <div className="absolute top-0 left-0 w-full h-1 bg-accent-green scale-x-0 group-hover:scale-x-100 origin-left transition-transform duration-500"></div>
+                    <span className="inline-block px-3 py-1 bg-accent-green/10 text-accent-green font-mono text-[10px] uppercase tracking-[0.2em] mb-6 rounded-full border border-accent-green/20">
+                      Executive Verdict
+                    </span>
+                    <p className="font-display text-3xl lg:text-5xl leading-tight text-ink-900 max-w-4xl text-balance">{getVerdict()}</p>
+                  </div>
+                )}
+
+                {/* Competitors */}
+                {competitors.length > 0 && (
+                  <div className="flex flex-col gap-6">
+                    <div className="flex items-center gap-4">
+                      <h3 className="font-display text-3xl text-ink-900">Competitor Landscape</h3>
+                      <span className="px-3 py-1 bg-accent/10 text-accent font-mono text-[10px] uppercase tracking-[0.2em] rounded-full border border-accent/20">
+                        {competitors.length} Found
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 w-full">
+                      {competitors.map((c, i) => (
+                        <div key={i} className="group flex flex-col bg-white rounded-2xl p-6 border border-border/50 hover:border-accent/30 hover:shadow-md transition-all duration-300 relative overflow-hidden">
+                          <div className="absolute top-0 left-0 w-1 h-full bg-accent scale-y-0 group-hover:scale-y-100 origin-top transition-transform duration-500 ease-out"></div>
+
+                          <div className="flex justify-between items-start gap-4 mb-4">
+                            <h4 className="font-display text-2xl text-ink-900 leading-snug">{c.name}</h4>
+                            {c.threat_level && (
+                              <span className={`shrink-0 px-2.5 py-1 text-[9px] uppercase font-mono tracking-widest rounded-full ${c.threat_level === "high" ? "bg-accent/10 text-accent border border-accent/20" :
+                                c.threat_level === "medium" ? "bg-orange-100 text-orange-700 border border-orange-200" :
+                                  "bg-accent-green/10 text-accent-green border border-accent-green/20"
+                                }`}>
+                                {c.threat_level} THREAT
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-sm text-text-secondary leading-relaxed font-sans mb-6 flex-grow">{c.description}</p>
+
                           {c.differentiator && (
-                            <p className="text-xs text-secondary mt-3 font-mono border-l-2 border-border-strong pl-3">
-                              <span className="text-primary font-medium">Gap: </span>{c.differentiator}
-                            </p>
+                            <div className="bg-background-raised rounded-lg p-3 mb-6 border border-border/50">
+                              <p className="text-xs text-ink-900 font-sans">
+                                <span className="font-bold text-accent mr-2">Gap:</span>{c.differentiator}
+                              </p>
+                            </div>
+                          )}
+
+                          {c.url && (
+                            <a href={c.url} target="_blank" rel="noopener noreferrer"
+                              className="mt-auto self-start flex items-center gap-2 text-xs font-medium text-text-secondary hover:text-accent transition-colors group/link">
+                              Visit Website <ChevronRight className="w-3.5 h-3.5 group-hover/link:translate-x-1 transition-transform" />
+                            </a>
                           )}
                         </div>
-                        {c.url && (
-                          <a
-                            href={c.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-xs font-medium text-secondary hover:text-primary flex items-center gap-1 shrink-0 ml-4 pt-1 transition-colors"
-                          >
-                            Visit <ChevronRight className="w-3.5 h-3.5" />
-                          </a>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* ═══ MORE SOURCES — same card layout, blurred for anon ═══ */}
-                  {extraSources.length > 0 && (
-                    <div className="mt-2">
-                      {/* Anonymous: blurred teaser using SAME competitor card layout */}
-                      {!user && (
-                        <div className="relative">
-                          {/* Fake competitor cards that look exactly like the real ones above */}
-                          <div className="space-y-0">
-                            {extraSources.slice(0, 3).map((s, i) => (
-                              <div
-                                key={i}
-                                className="flex items-start justify-between py-5 border-b border-border last:border-0 -mx-8 px-8 blur-[5px] select-none pointer-events-none"
-                              >
-                                <div className="max-w-[80%]">
-                                  <div className="flex items-center gap-2 mb-1">
-                                    <p className="text-base font-medium">{s.title}</p>
-                                    <SourceBadge type={s.source_type} />
-                                  </div>
-                                  <p className="text-sm text-secondary leading-relaxed">
-                                    {s.snippet}
-                                  </p>
-                                </div>
-                                <span className="text-xs font-medium text-secondary flex items-center gap-1 shrink-0 ml-4 pt-1">
-                                  Visit <ChevronRight className="w-3.5 h-3.5" />
-                                </span>
-                              </div>
-                            ))}
-                          </div>
-                          {/* Overlay */}
-                          <div className="absolute inset-0 flex flex-col items-center justify-center bg-gradient-to-t from-white via-white/90 to-white/50">
-                            <Lock className="w-4 h-4 text-secondary mb-2" />
-                            <p className="text-sm font-medium text-primary mb-1">
-                              {extraSources.length} more sources found
-                            </p>
-                            <p className="text-xs text-secondary mb-3">Sign in to see all discovered sources</p>
-                            <Link href="/auth/login?returnTo=/appgroup/dashboard" className="btn-primary text-xs py-2 px-5">
-                              Sign in to unlock
-                            </Link>
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Signed-in: collapsed preview */}
-                      {user && !showAllSources && (
-                        <button
-                          onClick={() => setShowAllSources(true)}
-                          className="w-full mt-4 py-3 text-sm text-secondary hover:text-primary font-medium flex items-center justify-center gap-1.5 border border-border rounded-[2px] hover:border-border-strong transition-colors"
-                        >
-                          See {extraSources.length} more sources <ChevronRight className="w-3.5 h-3.5" />
-                        </button>
-                      )}
-
-                      {/* Signed-in: expanded full list — same card layout as competitors */}
-                      {user && showAllSources && (
-                        <div className="mt-2 animate-fade-in">
-                          <p className="text-xs font-mono text-secondary uppercase tracking-widest mb-4 pt-4 border-t border-border">
-                            More Sources
-                          </p>
-                          {extraSources.map((s, i) => (
-                            <div
-                              key={i}
-                              className="group flex items-start justify-between py-5 border-b border-border last:border-0 hover:bg-background-sunken -mx-8 px-8 transition-colors"
-                            >
-                              <div className="max-w-[80%]">
-                                <div className="flex items-center gap-2 mb-1">
-                                  <p className="text-base font-medium">{s.title}</p>
-                                  <SourceBadge type={s.source_type} />
-                                </div>
-                                <p className="text-sm text-secondary leading-relaxed">
-                                  {s.snippet}
-                                </p>
-                                <p className="text-[10px] font-mono text-text-tertiary mt-1 truncate">{s.url}</p>
-                              </div>
-                              <a
-                                href={s.url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-xs font-medium text-secondary hover:text-primary flex items-center gap-1 shrink-0 ml-4 pt-1 transition-colors"
-                              >
-                                Visit <ChevronRight className="w-3.5 h-3.5" />
-                              </a>
-                            </div>
-                          ))}
-                          <button
-                            onClick={() => setShowAllSources(false)}
-                            className="mt-4 text-xs font-mono text-secondary hover:text-primary transition-colors"
-                          >
-                            Show less
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Gaps */}
-              {gaps.length > 0 && (
-                <div className="card-minimal">
-                  <p className="text-xs font-mono text-secondary uppercase tracking-widest mb-6">
-                    Market Gaps
-                  </p>
-                  <ul className="space-y-3">
-                    {gaps.map((g, i) => (
-                      <li key={i} className="text-base text-secondary flex items-start gap-4">
-                        <span className="text-primary mt-1.5 shrink-0"><Zap className="w-3.5 h-3.5" /></span>
-                        <span className="leading-relaxed">{g}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-
-              {/* Pros & Cons */}
-              <div className="grid md:grid-cols-2 gap-6">
-                {pros.length > 0 && (
-                  <div className="card-minimal">
-                    <p className="text-xs font-mono text-secondary uppercase tracking-widest mb-6">
-                      Pros
-                    </p>
-                    <ul className="space-y-3">
-                      {pros.map((p, i) => (
-                        <li key={i} className="text-base text-secondary flex items-start gap-3">
-                          <span className="text-primary shrink-0 font-medium">+</span>
-                          <span className="leading-relaxed">{p}</span>
-                        </li>
                       ))}
-                    </ul>
+                    </div>
                   </div>
                 )}
-                {cons.length > 0 && (
-                  <div className="card-minimal border-accent/20">
-                    <p className="text-xs font-mono text-accent uppercase tracking-widest mb-6">
-                      Cons
-                    </p>
-                    <ul className="space-y-3">
-                      {cons.map((c, i) => (
-                        <li key={i} className="text-base text-secondary flex items-start gap-3">
-                          <span className="text-accent shrink-0 font-medium">&minus;</span>
-                          <span className="leading-relaxed">{c}</span>
+
+                {/* Strategic Analysis (Pros, Cons, Gaps) */}
+                {(pros.length > 0 || cons.length > 0 || gaps.length > 0) && (
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    {/* Pros */}
+                    {pros.length > 0 && (
+                      <div className="bg-white rounded-2xl p-6 md:p-8 border border-border/50 shadow-sm relative overflow-hidden group hover:border-accent-green/30 transition-all duration-300">
+                        <div className="absolute top-0 left-0 w-full h-1 bg-accent-green scale-x-0 group-hover:scale-x-100 origin-left transition-transform duration-500"></div>
+                        <div className="flex items-center gap-3 mb-6">
+                          <div className="w-8 h-8 rounded-full bg-accent-green/10 flex items-center justify-center border border-accent-green/20">
+                            <Zap className="w-4 h-4 text-accent-green" />
+                          </div>
+                          <h4 className="font-display text-2xl text-ink-900">Strengths</h4>
+                        </div>
+                        <ul className="space-y-4">
+                          {pros.map((p, i) => (
+                            <li key={i} className="flex items-start gap-3">
+                              <span className="font-bold text-accent-green mt-0.5">+</span>
+                              <span className="font-sans text-sm text-text-secondary leading-relaxed">{p}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    {/* Cons */}
+                    {cons.length > 0 && (
+                      <div className="bg-white rounded-2xl p-6 md:p-8 border border-border/50 shadow-sm relative overflow-hidden group hover:border-accent/30 transition-all duration-300">
+                        <div className="absolute top-0 left-0 w-full h-1 bg-accent scale-x-0 group-hover:scale-x-100 origin-left transition-transform duration-500"></div>
+                        <div className="flex items-center gap-3 mb-6">
+                          <div className="w-8 h-8 rounded-full bg-accent/10 flex items-center justify-center border border-accent/20">
+                            <X className="w-4 h-4 text-accent" />
+                          </div>
+                          <h4 className="font-display text-2xl text-ink-900">Weaknesses</h4>
+                        </div>
+                        <ul className="space-y-4">
+                          {cons.map((c, i) => (
+                            <li key={i} className="flex items-start gap-3">
+                              <span className="font-bold text-accent mt-0.5">&minus;</span>
+                              <span className="font-sans text-sm text-text-secondary leading-relaxed">{c}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    {/* Gaps */}
+                    {gaps.length > 0 && (
+                      <div className="bg-white rounded-2xl p-6 md:p-8 border border-border/50 shadow-sm relative overflow-hidden group hover:border-ink-900/30 transition-all duration-300">
+                        <div className="absolute top-0 left-0 w-full h-1 bg-ink-900 scale-x-0 group-hover:scale-x-100 origin-left transition-transform duration-500"></div>
+                        <div className="flex items-center gap-3 mb-6">
+                          <div className="w-8 h-8 rounded-full bg-background-raised flex items-center justify-center border border-border-strong">
+                            <Search className="w-4 h-4 text-ink-900" />
+                          </div>
+                          <h4 className="font-display text-2xl text-ink-900">Unmet Gaps</h4>
+                        </div>
+                        <ul className="space-y-4">
+                          {gaps.map((g, i) => (
+                            <li key={i} className="flex items-start gap-3">
+                              <span className="w-1.5 h-1.5 rounded-full bg-ink-900 mt-2 shrink-0"></span>
+                              <span className="font-sans text-sm text-text-secondary leading-relaxed">{g}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Build Plan */}
+                {buildPlan.length > 0 && (
+                  <div className="bg-white rounded-2xl p-8 sm:p-12 border border-border/50 shadow-sm">
+                    <div className="flex items-center gap-4 mb-8">
+                      <div className="w-12 h-12 rounded-xl bg-accent-green/10 flex items-center justify-center border border-accent-green/20">
+                        <Clock className="w-6 h-6 text-accent-green" />
+                      </div>
+                      <div>
+                        <h3 className="font-display text-3xl text-ink-900">Execution Plan</h3>
+                        <p className="font-sans text-text-secondary text-sm">Step-by-step phases to build your product.</p>
+                      </div>
+                    </div>
+                    <ol className="space-y-6 max-w-4xl">
+                      {buildPlan.map((step, i) => (
+                        <li key={i} className="flex items-start gap-6 group">
+                          <span className="font-mono text-[10px] uppercase font-bold text-accent-green border border-accent-green/20 bg-accent-green/10 px-3 py-1.5 rounded-full shrink-0 group-hover:bg-accent-green group-hover:text-white transition-colors mt-0.5">
+                            Phase {String(i + 1).padStart(2, "0")}
+                          </span>
+                          <span className="font-sans text-ink-900 leading-relaxed pt-1">{step}</span>
                         </li>
                       ))}
-                    </ul>
+                    </ol>
+                  </div>
+                )}
+
+                {/* Raw Intelligence Data */}
+                {mode === "deep" && extraSources.length > 0 && (
+                  <div className="flex flex-col gap-6 relative">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-4">
+                        <h3 className="font-display text-3xl text-ink-900">Raw Intelligence Data</h3>
+                        <span className="px-3 py-1 bg-background-raised text-ink-900 font-mono text-[10px] uppercase tracking-[0.2em] rounded-full border border-border/50">
+                          {extraSources.length} Sources
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-4">
+                      {(!user ? extraSources.slice(0, 3) : (showAllSources ? extraSources : extraSources.slice(0, 5))).map((s, i) => (
+                        <a
+                          key={i}
+                          href={s.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className={`bg-white rounded-xl p-5 border border-border/50 transition-all duration-300 group ${!user ? 'blur-[4px] pointer-events-none opacity-60' : 'hover:border-ink-900/30 hover:shadow-md'}`}
+                        >
+                          <div className="flex items-start justify-between gap-4">
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-3 mb-2">
+                                <SourceBadge type={s.source_type} />
+                                <h4 className="font-display text-xl text-ink-900 truncate group-hover:text-accent-green transition-colors">{s.title}</h4>
+                              </div>
+                              <p className="text-sm font-sans text-text-secondary line-clamp-2 leading-relaxed">{s.snippet}</p>
+                            </div>
+                            <ExternalLink className="w-4 h-4 text-border-strong group-hover:text-accent-green shrink-0 transition-colors" />
+                          </div>
+                        </a>
+                      ))}
+                    </div>
+
+                    {!user && (
+                      <div className="absolute inset-x-0 bottom-0 h-full max-h-[400px] flex flex-col items-center justify-end pb-12 bg-gradient-to-t from-background via-background/90 to-transparent z-10">
+                        <div className="bg-white/90 backdrop-blur-md p-8 rounded-2xl shadow-lg border border-border/50 flex flex-col items-center max-w-sm text-center">
+                          <div className="w-12 h-12 rounded-full bg-background-raised flex items-center justify-center mb-4 border border-border-strong">
+                            <Lock className="w-5 h-5 text-ink-900" />
+                          </div>
+                          <h4 className="font-display text-2xl text-ink-900 mb-2">Unlock {extraSources.length} More Sources</h4>
+                          <p className="font-sans text-sm text-text-secondary mb-6">Create a free account to view the full raw intelligence data, export to PDF, and chat with your research.</p>
+                          <Link href="/auth/login?returnTo=/appgroup/dashboard" className="btn-primary w-full py-3 rounded-full text-sm">
+                            Sign In to Unlock
+                          </Link>
+                        </div>
+                      </div>
+                    )}
+
+                    {user && extraSources.length > 5 && (
+                      <button
+                        onClick={() => setShowAllSources(!showAllSources)}
+                        className="w-full py-4 text-sm font-medium text-text-secondary hover:text-ink-900 bg-background-raised hover:bg-white rounded-xl border border-border/50 transition-all group flex items-center justify-center gap-2 mt-2"
+                      >
+                        {showAllSources ? "Collapse Sources" : `View ${extraSources.length - 5} More Sources`}
+                        <ChevronRight className={`w-4 h-4 transition-transform ${showAllSources ? '-rotate-90' : 'rotate-90 group-hover:translate-y-0.5'}`} />
+                      </button>
+                    )}
                   </div>
                 )}
               </div>
+            )}
 
-              {/* Build Plan */}
-              {buildPlan.length > 0 && (
-                <div className="card-minimal">
-                  <p className="text-xs font-mono text-secondary uppercase tracking-widest mb-6">
-                    Build Plan
-                  </p>
-                  <ol className="space-y-4">
-                    {buildPlan.map((step, i) => (
-                      <li key={i} className="text-base text-secondary flex items-start gap-4">
-                        <span className="font-mono text-xs font-medium text-primary mt-1 shrink-0 min-w-[24px]">
-                          {String(i + 1).padStart(2, "0")}
-                        </span>
-                        <span className="leading-relaxed">{step}</span>
-                      </li>
-                    ))}
-                  </ol>
+            {/* Redirect to History Detail for signed in users */}
+            {user && result && (
+              <div className="w-full text-center mt-12 mb-12 p-8 bg-background-raised rounded-2xl border border-border/50">
+                <Link href="/appgroup/dashboard" className="group inline-flex items-center gap-3 text-sm font-medium text-text-secondary hover:text-ink-900 bg-white px-6 py-3 rounded-full border border-border/50 hover:border-accent-green/30 hover:shadow-sm transition-all duration-300">
+                  Return to Dashboard &amp; View Full History
+                  <ArrowRight className="w-4 h-4 group-hover:translate-x-1 group-hover:text-accent-green transition-all" />
+                </Link>
+              </div>
+            )}
+
+            {/* Premium Empty state */}
+            {!result && !loading && !error && !prefilled && (
+              <div className="w-full text-center py-32 flex-grow flex flex-col items-center justify-center">
+                <div className="w-16 h-16 rounded-2xl bg-white border border-border/50 flex items-center justify-center mb-6 shadow-sm">
+                  <Zap className="w-8 h-8 text-border-strong" />
                 </div>
-              )}
-            </div>
-          )}
-
-          {/* Empty state */}
-          {!result && !loading && !error && !prefilled && (
-            <div className="text-center py-20">
-              <p className="text-secondary text-base">
-                Enter an idea above to get started.
-              </p>
-            </div>
-          )}
+                <h3 className="font-display text-2xl text-ink-900 mb-2">Ready to Validate</h3>
+                <p className="font-sans text-sm text-text-tertiary max-w-sm">
+                  Enter your product or service idea above to generate a comprehensive market validation report.
+                </p>
+              </div>
+            )}
+          </div>
         </main>
       </div>
+
+      {showSignInModal && !user && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4">
+          <div
+            className="absolute inset-0 bg-background/80 backdrop-blur-sm transition-opacity"
+            onClick={() => setShowSignInModal(false)}
+          />
+          <div className="relative bg-white w-full sm:max-w-md rounded-3xl border border-border/50 shadow-xl p-8 sm:p-10 transform transition-all overflow-hidden">
+            <div className="absolute top-0 left-0 w-full h-1.5 bg-accent-green"></div>
+            <button
+              onClick={() => setShowSignInModal(false)}
+              className="absolute top-6 right-6 text-text-tertiary hover:text-ink-900 hover:bg-background-raised rounded-full p-2 transition-colors"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <span className="inline-flex items-center gap-2 px-3 py-1 bg-accent-green/10 text-accent-green font-mono text-[10px] uppercase tracking-[0.2em] rounded-full border border-accent-green/20 mb-6 font-bold truncate pr-4">
+              <Zap className="w-3 h-3 fill-accent-green" /> Validation Complete
+            </span>
+            <h3 className="font-display text-3xl font-medium text-ink-900 mb-8 leading-tight pr-8">
+              Sign In To Unlock Your Results
+            </h3>
+
+            <div className="space-y-4 mb-8">
+              {[
+                "10 fast + 3 deep analyses daily",
+                "Chat with AI about your results",
+                "Export complete research to PDF",
+                "See all discovered source links",
+                "Access full research history",
+              ].map((f, i) => (
+                <div key={i} className="flex items-center gap-3 text-sm text-text-secondary font-sans leading-relaxed">
+                  <div className="w-5 h-5 rounded-full bg-accent-green/10 flex items-center justify-center shrink-0 border border-accent-green/20">
+                    <span className="text-accent-green font-bold text-xs">+</span>
+                  </div>
+                  <span>{f}</span>
+                </div>
+              ))}
+            </div>
+
+            <Link
+              href="/auth/login?returnTo=/appgroup/dashboard"
+              className="btn-primary w-full py-4 text-sm shadow-md"
+              onClick={() => setShowSignInModal(false)}
+            >
+              Set Up Free Account
+            </Link>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
