@@ -670,6 +670,52 @@ function DashboardContent() {
                         </div>
                       </div>
                     )}
+
+                    {user && mode === "deep" && extraSources.length > 0 && (
+                      <div className="mt-8 border-t border-border/50 pt-8">
+                        <div className="flex items-center gap-4 mb-6">
+                          <h4 className="font-display text-2xl text-ink-900">Additional Market Intelligence</h4>
+                          <span className="px-3 py-1 bg-background-raised text-ink-900 font-mono text-[10px] uppercase tracking-[0.2em] rounded-full border border-border/50">
+                            {extraSources.length} Sources
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-1 gap-4">
+                          {extraSources.slice(0, showAllSources ? extraSources.length : 5).map((s, i) => (
+                            <a
+                              key={i}
+                              href={s.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="bg-white rounded-xl p-5 border border-border/50 hover:border-ink-900/30 hover:shadow-md transition-all duration-300 group"
+                            >
+                              <div className="flex items-start justify-between gap-4">
+                                <div className="min-w-0">
+                                  <div className="flex items-center gap-3 mb-2">
+                                    <SourceBadge type={s.source_type} />
+                                    <h5 className="font-display text-lg text-ink-900 truncate group-hover:text-accent-green transition-colors">
+                                      {s.title}
+                                    </h5>
+                                  </div>
+                                  <p className="text-sm font-sans text-text-secondary line-clamp-2 leading-relaxed">
+                                    {s.snippet}
+                                  </p>
+                                </div>
+                                <ExternalLink className="w-4 h-4 text-border-strong group-hover:text-accent-green shrink-0 transition-colors" />
+                              </div>
+                            </a>
+                          ))}
+                        </div>
+                        {extraSources.length > 5 && (
+                          <button
+                            onClick={() => setShowAllSources(!showAllSources)}
+                            className="w-full py-4 text-sm font-medium text-text-secondary hover:text-ink-900 bg-background-raised hover:bg-white rounded-xl border border-border/50 transition-all group flex items-center justify-center gap-2 mt-4"
+                          >
+                            {showAllSources ? "Collapse Sources" : `View ${extraSources.length - 5} More Sources`}
+                            <ChevronRight className={`w-4 h-4 transition-transform ${showAllSources ? '-rotate-90' : 'rotate-90 group-hover:translate-y-0.5'}`} />
+                          </button>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -772,57 +818,6 @@ function DashboardContent() {
                         </li>
                       ))}
                     </ol>
-                  </div>
-                )}
-
-                {/* Raw Intelligence Data */}
-                {user && mode === "deep" && extraSources.length > 0 && (
-                  <div className="flex flex-col gap-6 relative">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-4">
-                        <h3 className="font-display text-3xl text-ink-900">Raw Intelligence Data</h3>
-                        <span className="px-3 py-1 bg-background-raised text-ink-900 font-mono text-[10px] uppercase tracking-[0.2em] rounded-full border border-border/50">
-                          {extraSources.length} Sources
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-1 gap-4">
-                      {extraSources.slice(0, showAllSources ? extraSources.length : 5).map((s, i) => (
-                        <a
-                          key={i}
-                          href={s.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="bg-white rounded-xl p-5 border border-border/50 hover:border-ink-900/30 hover:shadow-md transition-all duration-300 group"
-                        >
-                          <div className="flex items-start justify-between gap-4">
-                            <div className="min-w-0">
-                              <div className="flex items-center gap-3 mb-2">
-                                <SourceBadge type={s.source_type} />
-                                <h4 className="font-display text-xl text-ink-900 truncate group-hover:text-accent-green transition-colors">
-                                  {s.title}
-                                </h4>
-                              </div>
-                              <p className="text-sm font-sans text-text-secondary line-clamp-2 leading-relaxed">
-                                {s.snippet}
-                              </p>
-                            </div>
-                            <ExternalLink className="w-4 h-4 text-border-strong group-hover:text-accent-green shrink-0 transition-colors" />
-                          </div>
-                        </a>
-                      ))}
-                    </div>
-
-                    {extraSources.length > 5 && (
-                      <button
-                        onClick={() => setShowAllSources(!showAllSources)}
-                        className="w-full py-4 text-sm font-medium text-text-secondary hover:text-ink-900 bg-background-raised hover:bg-white rounded-xl border border-border/50 transition-all group flex items-center justify-center gap-2 mt-2"
-                      >
-                        {showAllSources ? "Collapse Sources" : `View ${extraSources.length - 5} More Sources`}
-                        <ChevronRight className={`w-4 h-4 transition-transform ${showAllSources ? '-rotate-90' : 'rotate-90 group-hover:translate-y-0.5'}`} />
-                      </button>
-                    )}
                   </div>
                 )}
               </div>
