@@ -10,7 +10,7 @@ Prompt engineering patterns from Worth The Watch applied:
 6. Structural enforcement (Pydantic response_format)
 7. Typography rules
 
-Models: nano (query cleaning), mini (analysis)
+Models: mini (analysis)
 """
 
 import asyncio
@@ -25,7 +25,7 @@ from src.research.schemas import AnalysisResult
 from src.research.fetcher import assemble_fast_context, is_blocked, url_score
 from src.research.agents.graph import run_deep_research
 
-NANO = "gpt-4.1-nano-2025-04-14"
+
 MINI = "gpt-4.1-mini-2025-04-14"
 
 
@@ -45,7 +45,7 @@ async def _clean_idea(idea: str, client: AsyncOpenAI) -> str:
 
     try:
         resp = await client.chat.completions.create(
-            model=NANO,
+            model=MINI,
             messages=[
                 {"role": "system", "content": (
                     "Extract the core product concept from the user's description. "
