@@ -154,6 +154,12 @@ function DashboardContent() {
 
   useEffect(() => {
     const fetchLimits = async () => {
+      if (!user) {
+        const saved = localStorage.getItem("shiporskip_limits");
+        if (saved) {
+          try { setLimits(JSON.parse(saved)); } catch { }
+        }
+      }
       try {
         const headers: Record<string, string> = {};
         if (user) {
@@ -231,8 +237,11 @@ function DashboardContent() {
           null,
           (msg: string) => setProgress(friendlyProgress(msg)),
           (data: Record<string, unknown>) => {
-            setResult(data);
-            if (data.limits) setLimits(data.limits);
+            setResult({ ...data, _mode: "deep" });
+            if (data.limits) {
+              setLimits(data.limits);
+              if (!user) localStorage.setItem("shiporskip_limits", JSON.stringify(data.limits));
+            }
 
             if (!user && !hasShownModal.current) {
               hasShownModal.current = true;
@@ -247,7 +256,10 @@ function DashboardContent() {
             if (err?.response?.status === 429 && err?.response?.data?.detail) {
               const detail = err.response.data.detail;
               setError(typeof detail === "string" ? detail : (detail.message || "Rate limit exceeded."));
-              if (detail.limits) setLimits(detail.limits);
+              if (detail.limits) {
+                setLimits(detail.limits);
+                if (!user) localStorage.setItem("shiporskip_limits", JSON.stringify(detail.limits));
+              }
             } else if (err?.response?.status === 403 || err?.response?.data?.detail === "Bot verification failed") {
               setVerified(false);
               setToken("");
@@ -269,8 +281,11 @@ function DashboardContent() {
       setProgress("Analyzing your idea...");
       try {
         const data = await analyzeFast(idea, undefined, token);
-        setResult(data);
-        if (data.limits) setLimits(data.limits);
+        setResult({ ...data, _mode: "fast" });
+        if (data.limits) {
+          setLimits(data.limits);
+          if (!user) localStorage.setItem("shiporskip_limits", JSON.stringify(data.limits));
+        }
 
         if (!user && !hasShownModal.current) {
           hasShownModal.current = true;
@@ -282,7 +297,10 @@ function DashboardContent() {
         if (err?.response?.status === 429 && err?.response?.data?.detail) {
           const detail = err.response.data.detail;
           setError(typeof detail === "string" ? detail : (detail.message || "Rate limit exceeded."));
-          if (detail.limits) setLimits(detail.limits);
+          if (detail.limits) {
+            setLimits(detail.limits);
+            if (!user) localStorage.setItem("shiporskip_limits", JSON.stringify(detail.limits));
+          }
         } else if (err?.response?.status === 403 || err?.response?.data?.detail === "Bot verification failed") {
           setVerified(false);
           setToken("");
@@ -578,6 +596,16 @@ function DashboardContent() {
             {/* Premium Results Layout */}
             {result && !loading && (
               <div className="w-full flex flex-col gap-12 py-12">
+
+                {result && (
+                  <div className="text-xs text-text-tertiary font-mono mb-4 flex items-center gap-2">
+                    {result._mode === "deep" ? (
+                      <><Search className="w-3 h-3" /> Deep research — {rawSources.length}+ sources analyzed</>
+                    ) : (
+                      <><Zap className="w-3 h-3" /> Quick check — switch to Deep Research for a thorough analysis</>
+                    )}
+                  </div>
+                )}
 
                 {/* Verdict */}
                 {getVerdict() && (
