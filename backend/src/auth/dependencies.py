@@ -7,6 +7,23 @@ from src.config import get_settings, Settings
 
 logger = logging.getLogger(__name__)
 
+_http_client: Optional[httpx.AsyncClient] = None
+
+
+def get_http_client() -> httpx.AsyncClient:
+    """Reusable async HTTP client — shares connection pool across requests."""
+    global _http_client
+    if _http_client is None or _http_client.is_closed:
+        _http_client = httpx.AsyncClient(timeout=5.0)
+    return _http_client
+
+
+async def close_http_client():
+    global _http_client
+    if _http_client and not _http_client.is_closed:
+        await _http_client.aclose()
+        _http_client = None
+
 
 async def get_current_user(
     authorization: Optional[str] = Header(None),
@@ -22,21 +39,21 @@ async def get_current_user(
         return None
 
     try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            resp = await client.get(
-                f"{settings.supabase_url}/auth/v1/user",
-                headers={
-                    "Authorization": f"Bearer {token}",
-                    "apikey": settings.supabase_service_key,
-                },
-            )
-            if resp.status_code == 200:
-                return resp.json()
-            elif resp.status_code == 401:
-                return None  # Expired/invalid token — treat as anonymous
-            else:
-                logger.warning(f"Supabase auth returned {resp.status_code}: {resp.text[:200]}")
-                return None
+        client = get_http_client()
+        resp = await client.get(
+            f"{settings.supabase_url}/auth/v1/user",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "apikey": settings.supabase_service_key,
+            },
+        )
+        if resp.status_code == 200:
+            return resp.json()
+        elif resp.status_code == 401:
+            return None
+        else:
+            logger.warning(f"Supabase auth returned {resp.status_code}: {resp.text[:200]}")
+            return None
     except httpx.ConnectError:
         logger.error("Cannot connect to Supabase — project may be paused or URL is wrong")
         raise HTTPException(

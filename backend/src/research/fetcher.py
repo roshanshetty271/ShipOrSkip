@@ -290,6 +290,50 @@ async def deep_fetch_pages(
 
 
 # ═══════════════════════════════════════
+# README Cleaner — strip noise, keep competitive intel
+# ═══════════════════════════════════════
+
+_NOISE_HEADERS = {
+    "installation", "install", "setup", "getting started",
+    "contributing", "license", "requirements", "prerequisites",
+    "development", "deploy", "deployment", "building", "build",
+    "running", "run", "quick start", "configuration",
+    "config", "environment", "docker", "ci/cd", "testing",
+    "tests", "changelog", "acknowledgments", "acknowledgements",
+    "sponsors", "backers", "funding", "support", "credits",
+    "table of contents", "toc",
+}
+
+
+def _clean_readme(text: str, max_chars: int = 1500) -> str:
+    lines = text.split("\n")
+    cleaned = []
+    skip_section = False
+
+    for line in lines:
+        stripped = line.strip()
+
+        if stripped.startswith("[![") or (stripped.startswith("![") and "](" in stripped):
+            continue
+
+        if stripped.startswith("#"):
+            header_text = stripped.lstrip("#").strip().lower()
+            skip_section = any(nh in header_text for nh in _NOISE_HEADERS)
+            if skip_section:
+                continue
+
+        if skip_section:
+            continue
+
+        cleaned.append(line)
+
+    result = "\n".join(cleaned).strip()
+    while "\n\n\n" in result:
+        result = result.replace("\n\n\n", "\n\n")
+    return result[:max_chars]
+
+
+# ═══════════════════════════════════════
 # Context Assembly
 # ═══════════════════════════════════════
 
@@ -298,52 +342,68 @@ def assemble_deep_context(
     ph_results: list[str], deep_pages: dict[str, str],
     max_chars: int = 12000,
 ) -> str:
-    github_budget = int(max_chars * 0.30)
-    competitor_budget = int(max_chars * 0.50)
-    snippet_budget = int(max_chars * 0.20)
+    github_budget = int(max_chars * 0.20)
+    competitor_budget = int(max_chars * 0.45)
+    snippet_budget = int(max_chars * 0.35)
 
     sections = []
+    used_urls: set[str] = set()
 
     gh_section = []
     chars_used = 0
     for slug, readme in github_readmes.items():
-        chunk = f"### GitHub: {slug}\n{readme}\n"
+        cleaned = _clean_readme(readme, max_chars=1500)
+        if len(cleaned) < 100:
+            continue
+        chunk = f"### GitHub: {slug}\n{cleaned}\n"
         if chars_used + len(chunk) > github_budget:
             chunk = chunk[:github_budget - chars_used]
         gh_section.append(chunk)
+        used_urls.add(f"https://github.com/{slug}".lower())
         chars_used += len(chunk)
-        if chars_used >= github_budget: break
+        if chars_used >= github_budget:
+            break
 
     for ph in ph_results[:5]:
-        if chars_used + len(ph) > github_budget: break
+        if chars_used + len(ph) > github_budget:
+            break
         gh_section.append(ph)
         chars_used += len(ph)
 
     if gh_section:
         sections.append("## GitHub Repos & Product Hunt Launches\n" + "\n".join(gh_section))
 
+    deep_sorted = sorted(deep_pages.items(), key=lambda x: -url_score(x[0]))
     deep_section = []
     chars_used = 0
-    for url, content in deep_pages.items():
-        if "github.com" in url: continue
-        chunk = f"### {url}\n{content}\n"
+    for url, content in deep_sorted:
+        if "github.com" in url:
+            continue
+        used_urls.add(url.lower().rstrip("/"))
+        chunk = f"### {url}\n{content[:2000]}\n"
         if chars_used + len(chunk) > competitor_budget:
             chunk = chunk[:competitor_budget - chars_used]
         deep_section.append(chunk)
         chars_used += len(chunk)
-        if chars_used >= competitor_budget: break
+        if chars_used >= competitor_budget:
+            break
 
     if deep_section:
         sections.append("## Competitor Pages (Full Content)\n" + "\n".join(deep_section))
 
     snippet_section = []
     chars_used = 0
-    for r in tavily_results[:15]:
+    for r in tavily_results[:20]:
         title = r.get("title", "")
         url = r.get("url", "")
-        content = (r.get("content", "") or "")[:200]
+        if url.lower().rstrip("/") in used_urls:
+            continue
+        if is_title_blocked(title):
+            continue
+        content = (r.get("content", "") or "")[:300]
         line = f"- {title} ({url}): {content}"
-        if chars_used + len(line) > snippet_budget: break
+        if chars_used + len(line) > snippet_budget:
+            break
         snippet_section.append(line)
         chars_used += len(line)
 

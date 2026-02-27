@@ -3,10 +3,11 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from src.config import get_settings
+from src.config import get_settings, get_supabase_client
 from src.middleware import setup_middleware
 from src.research.router import router as research_router
 from src.auth.router import router as auth_router
+from src.auth.dependencies import close_http_client
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
@@ -18,7 +19,21 @@ async def lifespan(app: FastAPI):
     missing = [k for k in required if not getattr(settings, k)]
     if missing:
         logger.warning(f"Missing env vars: {missing}. Some features unavailable.")
+
+    # Clean up any research stuck in "processing" from a previous crash
+    sb = get_supabase_client()
+    if sb:
+        try:
+            result = sb.rpc("cleanup_stuck_research").execute()
+            cleaned = result.data if result.data else 0
+            if cleaned:
+                logger.info(f"Cleaned up {cleaned} stuck research record(s) on startup.")
+        except Exception as e:
+            logger.warning(f"Could not run stuck-research cleanup: {e}")
+
     yield
+
+    await close_http_client()
 
 
 app = FastAPI(

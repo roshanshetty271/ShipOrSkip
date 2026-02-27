@@ -3,19 +3,19 @@ ShipOrSkip Research Router
 
 Rate limits:
   Per-minute (slowapi):    10/min fast, 3/min deep
-  Anonymous (IP tracked):  3 fast total, 1 deep total
-  Signed-in Free (daily):  10 fast/day, 3 deep/day, 4 deep researches/day (DB)
+  Anonymous (IP tracked):  3 fast total, 1 deep total (persisted in DB)
+  Signed-in Free:          10 fast / 3 deep per rolling 24h window
   Signed-in Premium:       unlimited
   Chat: 5 messages/research (free tier)
 
-All analysis endpoints return remaining counts in response.
+All analysis endpoints return remaining counts + next_available_at timestamps.
 GET /api/limits returns current remaining for frontend display.
 """
 
+import hashlib
 import json
 import logging
-from collections import defaultdict
-from datetime import date, datetime
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -50,7 +50,6 @@ FREE_DEEP_DAILY = 3
 # ═══════════════════════════════════════
 # ═══════════════════════════════════════
 
-_anon_usage: dict[str, dict] = defaultdict(lambda: {"fast": 0, "deep": 0})
 _verified_ips: set[str] = set()
 
 
@@ -61,13 +60,84 @@ def _get_client_ip(request: Request) -> str:
     return request.client.host if request.client else "unknown"
 
 
+def _hash_ip(ip: str) -> str:
+    return hashlib.sha256(ip.encode()).hexdigest()
+
+
+def _get_anon_usage(ip_hash: str) -> dict:
+    """Fetch anonymous usage from DB. Falls back to zeros on error."""
+    sb = get_supabase_client()
+    if not sb:
+        return {"fast": 0, "deep": 0}
+    try:
+        result = sb.table("anon_usage").select("fast_count, deep_count").eq("ip_hash", ip_hash).execute()
+        if result.data and len(result.data) > 0:
+            row = result.data[0]
+            return {"fast": row.get("fast_count", 0), "deep": row.get("deep_count", 0)}
+    except Exception as e:
+        logger.warning(f"Could not fetch anon usage: {e}")
+    return {"fast": 0, "deep": 0}
+
+
+def _increment_anon_db(ip_hash: str, analysis_type: str):
+    """Persist anonymous usage bump to DB via upsert."""
+    sb = get_supabase_client()
+    if not sb:
+        return
+    try:
+        col = "fast_count" if analysis_type == "fast" else "deep_count"
+        existing = sb.table("anon_usage").select("fast_count, deep_count").eq("ip_hash", ip_hash).execute()
+        if existing.data and len(existing.data) > 0:
+            current = existing.data[0].get(col, 0)
+            sb.table("anon_usage").update({col: current + 1}).eq("ip_hash", ip_hash).execute()
+        else:
+            row = {"ip_hash": ip_hash, "fast_count": 0, "deep_count": 0}
+            row[col] = 1
+            sb.table("anon_usage").insert(row).execute()
+    except Exception as e:
+        logger.warning(f"Could not update anon usage: {e}")
+
+
 # ═══════════════════════════════════════
-# Remaining count helpers
+# Rolling 24h window helpers
 # ═══════════════════════════════════════
+
+def _parse_ts(iso_str: str) -> datetime:
+    """Parse ISO timestamp from Supabase into a timezone-aware datetime."""
+    return datetime.fromisoformat(iso_str.replace("Z", "+00:00"))
+
+
+def _get_rolling_usage(user_id: str, analysis_type: str, limit: int) -> dict:
+    """Count analyses in the last 24h rolling window.
+    Returns {used, remaining, next_available_at}."""
+    sb = get_supabase_client()
+    if not sb:
+        return {"used": 0, "remaining": limit, "next_available_at": None}
+    try:
+        window_start = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+        result = sb.table("research").select("created_at") \
+            .eq("user_id", user_id).eq("analysis_type", analysis_type) \
+            .gte("created_at", window_start) \
+            .order("created_at").execute()
+
+        timestamps = [row["created_at"] for row in (result.data or [])]
+        used = len(timestamps)
+        remaining = max(0, limit - used)
+
+        next_available_at = None
+        if remaining == 0 and timestamps:
+            oldest = _parse_ts(timestamps[0])
+            next_available_at = (oldest + timedelta(hours=24)).isoformat()
+
+        return {"used": used, "remaining": remaining, "next_available_at": next_available_at}
+    except Exception as e:
+        logger.warning(f"Could not get rolling usage for {analysis_type}: {e}")
+        return {"used": 0, "remaining": limit, "next_available_at": None}
+
 
 def _get_anon_remaining(request: Request) -> dict:
     ip = _get_client_ip(request)
-    usage = _anon_usage[ip]
+    usage = _get_anon_usage(_hash_ip(ip))
     return {
         "remaining_fast": max(0, ANON_FAST_LIMIT - usage["fast"]),
         "remaining_deep": max(0, ANON_DEEP_LIMIT - usage["deep"]),
@@ -77,51 +147,46 @@ def _get_anon_remaining(request: Request) -> dict:
     }
 
 
+def _default_free_limits():
+    return {
+        "remaining_fast": FREE_FAST_DAILY, "remaining_deep": FREE_DEEP_DAILY,
+        "tier": "free", "fast_limit": FREE_FAST_DAILY, "deep_limit": FREE_DEEP_DAILY,
+        "next_fast_available_at": None, "next_deep_available_at": None,
+    }
+
+
 async def _get_signed_in_remaining(user: dict) -> dict:
     sb = get_supabase_client()
     if not sb:
-        return {"remaining_fast": FREE_FAST_DAILY, "remaining_deep": FREE_DEEP_DAILY, "tier": "free",
-                "fast_limit": FREE_FAST_DAILY, "deep_limit": FREE_DEEP_DAILY}
+        return _default_free_limits()
     try:
-        profile = sb.table("profiles").select("tier, deep_research_count, last_reset_date").eq("id", user["id"]).execute()
-        if not profile.data or len(profile.data) == 0:
-            return {"remaining_fast": FREE_FAST_DAILY, "remaining_deep": FREE_DEEP_DAILY, "tier": "free",
-                    "fast_limit": FREE_FAST_DAILY, "deep_limit": FREE_DEEP_DAILY}
-
-        data = profile.data[0]
-        tier = data.get("tier", "free")
+        profile = sb.table("profiles").select("tier").eq("id", user["id"]).execute()
+        tier = "free"
+        if profile.data and len(profile.data) > 0:
+            tier = profile.data[0].get("tier", "free")
 
         if tier == "premium":
-            return {"remaining_fast": "unlimited", "remaining_deep": "unlimited", "tier": "premium",
-                    "fast_limit": "unlimited", "deep_limit": "unlimited"}
+            return {
+                "remaining_fast": "unlimited", "remaining_deep": "unlimited",
+                "tier": "premium", "fast_limit": "unlimited", "deep_limit": "unlimited",
+                "next_fast_available_at": None, "next_deep_available_at": None,
+            }
 
-        today = date.today().isoformat()
-        deep_used = data.get("deep_research_count", 0)
-        if data.get("last_reset_date") != today:
-            deep_used = 0
-
-        # Count today's fast analyses
-        fast_used = 0
-        try:
-            today_start = f"{today}T00:00:00"
-            fast_result = sb.table("research").select("id", count="exact") \
-                .eq("user_id", user["id"]).eq("analysis_type", "fast") \
-                .gte("created_at", today_start).execute()
-            fast_used = fast_result.count or 0
-        except Exception:
-            pass
+        fast = _get_rolling_usage(user["id"], "fast", FREE_FAST_DAILY)
+        deep = _get_rolling_usage(user["id"], "deep", FREE_DEEP_DAILY)
 
         return {
-            "remaining_fast": max(0, FREE_FAST_DAILY - fast_used),
-            "remaining_deep": max(0, FREE_DEEP_DAILY - deep_used),
+            "remaining_fast": fast["remaining"],
+            "remaining_deep": deep["remaining"],
             "tier": "free",
             "fast_limit": FREE_FAST_DAILY,
             "deep_limit": FREE_DEEP_DAILY,
+            "next_fast_available_at": fast["next_available_at"],
+            "next_deep_available_at": deep["next_available_at"],
         }
     except Exception as e:
         logger.warning(f"Could not get remaining: {e}")
-        return {"remaining_fast": FREE_FAST_DAILY, "remaining_deep": FREE_DEEP_DAILY, "tier": "free",
-                "fast_limit": FREE_FAST_DAILY, "deep_limit": FREE_DEEP_DAILY}
+        return _default_free_limits()
 
 
 # ═══════════════════════════════════════
@@ -146,9 +211,10 @@ async def _check_turnstile(request: Request, token: Optional[str], settings: Set
 
 
 def _check_anon_limit(request: Request, analysis_type: str):
-    """Check anonymous usage. Raises 429 if over limit."""
+    """Check anonymous usage from DB. Raises 429 if over limit."""
     ip = _get_client_ip(request)
-    usage = _anon_usage[ip]
+    ip_hash = _hash_ip(ip)
+    usage = _get_anon_usage(ip_hash)
     remaining = _get_anon_remaining(request)
 
     if analysis_type == "fast" and usage["fast"] >= ANON_FAST_LIMIT:
@@ -165,47 +231,33 @@ def _check_anon_limit(request: Request, analysis_type: str):
 
 def _increment_anon(request: Request, analysis_type: str):
     ip = _get_client_ip(request)
-    _anon_usage[ip][analysis_type] += 1
+    _increment_anon_db(_hash_ip(ip), analysis_type)
 
 
 async def _check_signed_in_fast_limit(user: dict):
-    """Check signed-in user's daily fast limit."""
+    """Check signed-in user's rolling 24h fast limit."""
     remaining = await _get_signed_in_remaining(user)
     if remaining.get("tier") == "premium":
         return
     if remaining["remaining_fast"] <= 0:
         raise HTTPException(status_code=429, detail={
-            "message": f"You've used all {FREE_FAST_DAILY} fast analyses for today. Resets tomorrow.",
+            "message": f"You've used all {FREE_FAST_DAILY} fast analyses in the last 24 hours.",
+            "next_available_at": remaining.get("next_fast_available_at"),
             **remaining,
         })
 
 
-async def _check_signed_in_deep_limit(user: dict, settings: Settings):
-    """Check signed-in user's daily deep limit."""
-    sb = get_supabase_client()
-    if not sb:
+async def _check_signed_in_deep_limit(user: dict):
+    """Check signed-in user's rolling 24h deep limit."""
+    remaining = await _get_signed_in_remaining(user)
+    if remaining.get("tier") == "premium":
         return
-    try:
-        profile = sb.table("profiles").select("deep_research_count, last_reset_date, tier").eq("id", user["id"]).execute()
-        if not profile.data or len(profile.data) == 0:
-            return
-        data = profile.data[0]
-        if data.get("tier") == "premium":
-            return
-        today = date.today().isoformat()
-        if data.get("last_reset_date") != today:
-            sb.table("profiles").update({"deep_research_count": 0, "last_reset_date": today}).eq("id", user["id"]).execute()
-            return
-        if data.get("deep_research_count", 0) >= FREE_DEEP_DAILY:
-            raise HTTPException(status_code=429, detail={
-                "message": f"You've used all {FREE_DEEP_DAILY} deep researches for today. Resets tomorrow.",
-                "remaining_fast": max(0, FREE_FAST_DAILY),
-                "remaining_deep": 0,
-            })
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.warning(f"Could not check deep limit: {e}")
+    if remaining["remaining_deep"] <= 0:
+        raise HTTPException(status_code=429, detail={
+            "message": f"You've used all {FREE_DEEP_DAILY} deep researches in the last 24 hours.",
+            "next_available_at": remaining.get("next_deep_available_at"),
+            **remaining,
+        })
 
 
 async def _check_concurrent_research(user: Optional[dict]):
@@ -213,6 +265,12 @@ async def _check_concurrent_research(user: Optional[dict]):
     if not sb or not user:
         return
     try:
+        # First, clean up any globally stuck research (>10 min old)
+        try:
+            sb.rpc("cleanup_stuck_research").execute()
+        except Exception:
+            pass
+
         result = sb.table("research").select("id").eq("user_id", user["id"]).eq("status", "processing").execute()
         if result.data and len(result.data) > 0:
             raise HTTPException(status_code=409, detail="You already have a deep research in progress.")
@@ -248,21 +306,6 @@ async def _update_research_status(research_id: Optional[str], status: str, resul
         sb.table("research").update(update).eq("id", research_id).execute()
     except Exception as e:
         logger.warning(f"Could not update research status: {e}")
-
-
-async def _increment_deep_count(user: Optional[dict]):
-    sb = get_supabase_client()
-    if not sb or not user:
-        return
-    try:
-        sb.rpc("increment_deep_count", {"user_id_input": user["id"]}).execute()
-    except Exception:
-        try:
-            profile = sb.table("profiles").select("deep_research_count").eq("id", user["id"]).single().execute()
-            current = profile.data.get("deep_research_count", 0) if profile.data else 0
-            sb.table("profiles").update({"deep_research_count": current + 1}).eq("id", user["id"]).execute()
-        except Exception as e:
-            logger.warning(f"Could not increment deep count: {e}")
 
 
 def _get_research_or_404(research_id: str, user_id: str) -> dict:
@@ -353,7 +396,7 @@ async def analyze_deep(
 
     # Rate limit check
     if user and user.get("email") not in ADMIN_EMAILS:
-        await _check_signed_in_deep_limit(user, settings)
+        await _check_signed_in_deep_limit(user)
     elif not user:
         _check_anon_limit(request, "deep")
 
@@ -384,7 +427,6 @@ async def analyze_deep(
         finally:
             if final_result:
                 await _update_research_status(research_id, "completed", final_result)
-                await _increment_deep_count(user)
             elif research_id:
                 await _update_research_status(research_id, "failed")
 

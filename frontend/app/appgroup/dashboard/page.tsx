@@ -100,6 +100,113 @@ function friendlyProgress(raw: string): string {
   return "Researching...";
 }
 
+function useCountdown(targetIso: string | null | undefined) {
+  const [timeLeft, setTimeLeft] = useState("");
+  const [expired, setExpired] = useState(false);
+
+  useEffect(() => {
+    if (!targetIso) {
+      setTimeLeft("");
+      setExpired(true);
+      return;
+    }
+
+    const target = new Date(targetIso).getTime();
+
+    function tick() {
+      const diff = target - Date.now();
+      if (diff <= 0) {
+        setTimeLeft("00:00:00");
+        setExpired(true);
+        return;
+      }
+      setExpired(false);
+      const h = Math.floor(diff / 3_600_000);
+      const m = Math.floor((diff % 3_600_000) / 60_000);
+      const s = Math.floor((diff % 60_000) / 1_000);
+      setTimeLeft(
+        `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`
+      );
+    }
+
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [targetIso]);
+
+  return { timeLeft, expired };
+}
+
+const CountdownTimer = memo(function CountdownTimer({
+  targetIso,
+  onExpire,
+}: {
+  targetIso: string;
+  onExpire?: () => void;
+}) {
+  const { timeLeft, expired } = useCountdown(targetIso);
+
+  useEffect(() => {
+    if (expired && onExpire) onExpire();
+  }, [expired, onExpire]);
+
+  if (expired) return null;
+
+  return (
+    <span className="font-mono tabular-nums text-accent font-bold tracking-wider">
+      {timeLeft}
+    </span>
+  );
+});
+
+const SubmitButton = memo(function SubmitButton({
+  loading,
+  idea,
+  verified,
+  user,
+  limits,
+  mode,
+  fetchLimits,
+}: {
+  loading: boolean;
+  idea: string;
+  verified: boolean;
+  user: any;
+  limits: any;
+  mode: string;
+  fetchLimits: () => void;
+}) {
+  const currentRemaining = limits
+    ? mode === "fast" ? limits.remaining_fast : limits.remaining_deep
+    : null;
+  const nextAt = limits
+    ? mode === "fast" ? limits.next_fast_available_at : limits.next_deep_available_at
+    : null;
+  const rateLimited = user && limits && currentRemaining !== "unlimited" && currentRemaining <= 0;
+  const { timeLeft, expired } = useCountdown(nextAt);
+
+  useEffect(() => {
+    if (expired && rateLimited) fetchLimits();
+  }, [expired, rateLimited, fetchLimits]);
+
+  return (
+    <button
+      type="submit"
+      disabled={loading || !idea.trim() || (!verified && !user) || !!rateLimited}
+      className="btn-primary h-12 px-8 flex items-center justify-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed group/btn hover:shadow-lg transition-all duration-300"
+    >
+      {loading
+        ? "Analyzing..."
+        : rateLimited && timeLeft
+          ? `Available in ${timeLeft}`
+          : "Analyze Idea"}
+      {!loading && !rateLimited && (
+        <ArrowRight className="w-4 h-4 group-hover/btn:translate-x-1 transition-transform" />
+      )}
+    </button>
+  );
+});
+
 const SignInModal = memo(function SignInModal({
   onClose,
 }: {
@@ -269,33 +376,34 @@ function DashboardContent() {
     });
   }, [searchParams]);
 
-  useEffect(() => {
-    const fetchLimits = async () => {
-      if (!user) {
-        const saved = localStorage.getItem("shiporskip_limits");
-        if (saved) {
-          try { setLimits(JSON.parse(saved)); } catch { }
+  const fetchLimits = useCallback(async () => {
+    if (!user) {
+      const saved = localStorage.getItem("shiporskip_limits");
+      if (saved) {
+        try { setLimits(JSON.parse(saved)); } catch { }
+      }
+    }
+    try {
+      const headers: Record<string, string> = {};
+      if (user) {
+        const { data } = await supabase.auth.getSession();
+        if (data.session?.access_token) {
+          headers["Authorization"] = `Bearer ${data.session.access_token}`;
         }
       }
-      try {
-        const headers: Record<string, string> = {};
-        if (user) {
-          const { data } = await supabase.auth.getSession();
-          if (data.session?.access_token) {
-            headers["Authorization"] = `Bearer ${data.session.access_token}`;
-          }
-        }
-        const r = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/api/limits`, {
-          headers,
-        });
-        if (r.ok) {
-          const data = await r.json();
-          setLimits(data);
-        }
-      } catch { }
-    };
-    fetchLimits();
+      const r = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/api/limits`, {
+        headers,
+      });
+      if (r.ok) {
+        const data = await r.json();
+        setLimits(data);
+      }
+    } catch { }
   }, [user]);
+
+  useEffect(() => {
+    fetchLimits();
+  }, [fetchLimits]);
 
   const handleTurnstileSuccess = (t: string) => {
     setToken(t);
@@ -372,9 +480,18 @@ function DashboardContent() {
             if (err?.response?.status === 429 && err?.response?.data?.detail) {
               const detail = err.response.data.detail;
               setError(typeof detail === "string" ? detail : (detail.message || "Rate limit exceeded."));
-              if (detail.limits) {
-                setLimits(detail.limits);
-                if (!user) localStorage.setItem("shiporskip_limits", JSON.stringify(detail.limits));
+              if (detail.remaining_fast !== undefined) {
+                const limitsFromError = {
+                  remaining_fast: detail.remaining_fast,
+                  remaining_deep: detail.remaining_deep,
+                  tier: detail.tier,
+                  fast_limit: detail.fast_limit,
+                  deep_limit: detail.deep_limit,
+                  next_fast_available_at: detail.next_fast_available_at,
+                  next_deep_available_at: detail.next_deep_available_at,
+                };
+                setLimits(limitsFromError);
+                if (!user) localStorage.setItem("shiporskip_limits", JSON.stringify(limitsFromError));
               }
             } else if (err?.response?.status === 403 || err?.response?.data?.detail === "Bot verification failed") {
               setVerified(false);
@@ -413,9 +530,18 @@ function DashboardContent() {
         if (err?.response?.status === 429 && err?.response?.data?.detail) {
           const detail = err.response.data.detail;
           setError(typeof detail === "string" ? detail : (detail.message || "Rate limit exceeded."));
-          if (detail.limits) {
-            setLimits(detail.limits);
-            if (!user) localStorage.setItem("shiporskip_limits", JSON.stringify(detail.limits));
+          if (detail.remaining_fast !== undefined) {
+            const limitsFromError = {
+              remaining_fast: detail.remaining_fast,
+              remaining_deep: detail.remaining_deep,
+              tier: detail.tier,
+              fast_limit: detail.fast_limit,
+              deep_limit: detail.deep_limit,
+              next_fast_available_at: detail.next_fast_available_at,
+              next_deep_available_at: detail.next_deep_available_at,
+            };
+            setLimits(limitsFromError);
+            if (!user) localStorage.setItem("shiporskip_limits", JSON.stringify(limitsFromError));
           }
         } else if (err?.response?.status === 403 || err?.response?.data?.detail === "Bot verification failed") {
           setVerified(false);
@@ -641,13 +767,39 @@ function DashboardContent() {
                   </div>
 
                   <div className="flex items-center justify-end gap-6">
-                    {limits && limits.remaining_fast !== "unlimited" && (
-                      <span className="text-[10px] uppercase tracking-[0.2em] font-mono text-text-tertiary">
-                        {mode === "fast"
-                          ? `${limits.remaining_fast} of ${limits.fast_limit} Left`
-                          : `${limits.remaining_deep} of ${limits.deep_limit} Left`}
-                      </span>
-                    )}
+                    {limits && limits.remaining_fast !== "unlimited" && (() => {
+                      const remaining = mode === "fast" ? limits.remaining_fast : limits.remaining_deep;
+                      const total = mode === "fast" ? limits.fast_limit : limits.deep_limit;
+                      const nextAt = mode === "fast" ? limits.next_fast_available_at : limits.next_deep_available_at;
+
+                      if (remaining > 0) {
+                        return (
+                          <span className="text-[10px] uppercase tracking-[0.2em] font-mono text-text-tertiary">
+                            {remaining} of {total} Left
+                          </span>
+                        );
+                      }
+                      if (user && nextAt) {
+                        return (
+                          <span className="text-[10px] uppercase tracking-[0.2em] font-mono text-text-tertiary flex items-center gap-1.5">
+                            <Clock className="w-3 h-3" />
+                            <CountdownTimer targetIso={nextAt} onExpire={fetchLimits} />
+                          </span>
+                        );
+                      }
+                      if (!user) {
+                        return (
+                          <span className="text-[10px] uppercase tracking-[0.2em] font-mono text-accent cursor-pointer hover:underline" onClick={() => setShowSignInModal(true)}>
+                            Sign in for more
+                          </span>
+                        );
+                      }
+                      return (
+                        <span className="text-[10px] uppercase tracking-[0.2em] font-mono text-text-tertiary">
+                          0 of {total} Left
+                        </span>
+                      );
+                    })()}
 
                     <div
                       className={`transition-all duration-500 overflow-hidden ${(verified || user) ? "opacity-0 max-w-0 max-h-0" : "opacity-100 max-w-[300px]"
@@ -660,14 +812,15 @@ function DashboardContent() {
                       />
                     </div>
 
-                    <button
-                      type="submit"
-                      disabled={loading || !idea.trim() || (!verified && !user)}
-                      className="btn-primary h-12 px-8 flex items-center justify-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed group/btn hover:shadow-lg transition-all duration-300"
-                    >
-                      {loading ? "Analyzing..." : "Analyze Idea"}
-                      {!loading && <ArrowRight className="w-4 h-4 group-hover/btn:translate-x-1 transition-transform" />}
-                    </button>
+                    <SubmitButton
+                      loading={loading}
+                      idea={idea}
+                      verified={verified}
+                      user={user}
+                      limits={limits}
+                      mode={mode}
+                      fetchLimits={fetchLimits}
+                    />
                   </div>
                 </div>
               </form>

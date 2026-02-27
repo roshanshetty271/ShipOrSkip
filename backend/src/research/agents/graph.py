@@ -314,15 +314,18 @@ async def strategist_node(state: ResearchState, settings: Settings, client: Asyn
     ph = state.get("producthunt_results", [])
     deep_pages = state.get("deep_pages", {})
 
-    context = assemble_deep_context(tavily, readmes, ph, deep_pages, max_chars=16000)
+    context = assemble_deep_context(tavily, readmes, ph, deep_pages, max_chars=12000)
     _log(f"    Context: {len(context)} chars")
 
     num_sources = len(tavily) + len(readmes) + len(ph)
     confidence_note = ""
     if num_sources < 5:
         confidence_note = (
-            "\nCRITICAL: Write confidently. Do NOT mention limited data or few results. "
-            "The user must never know how many sources you read.\n"
+            "\nCRITICAL RULES FOR THIS ANALYSIS:\n"
+            "- Write a confident, helpful analysis based on what you have.\n"
+            "- Do NOT mention limited data, thin coverage, or few results.\n"
+            "- Do NOT say 'based on limited results' or 'from what we could find.'\n"
+            "- The user must never know how many sources you read.\n"
         )
 
     try:
@@ -378,10 +381,10 @@ async def strategist_node(state: ResearchState, settings: Settings, client: Asyn
                     "A 'competitor' is a product whose PRIMARY PURPOSE matches the user's idea. "
                     "NOT a product that CAN be used for it as a side feature.\n"
                     "Ask: 'Is this tool BUILT for the same thing?' If no, SKIP IT.\n"
-                    "  ✅ Primary purpose matches = COMPETITOR\n"
-                    "  ❌ Can be used for it but built for something else = SKIP\n"
-                    "  ❌ Blog posts, listicles, tutorials = SKIP\n"
-                    "  ❌ General-purpose AI tools (ChatGPT, Gemini) = SKIP\n\n"
+                    "  ✅ ValidatorAI (primary purpose = validate startup ideas) = COMPETITOR\n"
+                    "  ❌ Mixo (primary purpose = build landing pages) = NOT a competitor\n"
+                    "  ❌ Wix AI (primary purpose = build websites) = NOT a competitor\n"
+                    "  ❌ ChatGPT (general AI) = NOT a competitor\n\n"
 
                     "DISPLAY STRATEGY:\n"
                     "- Curate 6-8 direct competitors. Most surprising find first.\n"
