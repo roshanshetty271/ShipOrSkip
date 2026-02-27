@@ -340,13 +340,6 @@ function DashboardContent() {
     !competitorNames.has(s.title?.toLowerCase().trim())
   );
 
-  const displaySources = [...extraSources];
-  if (!user && displaySources.length <= 5) {
-    while (displaySources.length < 7) {
-      displaySources.push({ title: "Locked Source", url: "#", source_type: "web", snippet: "locked", score: 0 });
-    }
-  }
-
   const initials = user?.email ? user.email[0].toUpperCase() : "?";
 
   return (
@@ -640,6 +633,43 @@ function DashboardContent() {
                         </div>
                       ))}
                     </div>
+
+                    {!user && extraSources.length > 0 && (
+                      <div className="mt-2 relative">
+                        <div className="space-y-0">
+                          {[1, 2, 3].map((i) => (
+                            <div
+                              key={i}
+                              className="flex items-start justify-between py-5 border-b border-border/50 last:border-0 -mx-8 px-8 blur-[5px] select-none pointer-events-none"
+                              aria-hidden="true"
+                            >
+                              <div className="max-w-[80%]">
+                                <p className="text-base font-medium mb-1 text-ink-900">Competitor Product Name</p>
+                                <p className="text-sm text-text-secondary leading-relaxed">
+                                  A brief description of what this competing product does and how it relates to your idea validation search.
+                                </p>
+                                <p className="text-xs text-text-secondary mt-3 font-mono border-l-2 border-border-strong pl-3">
+                                  <span className="text-ink-900 font-medium tracking-widest uppercase">Gap: </span>This competitor focuses on a different approach than what you are building.
+                                </p>
+                              </div>
+                              <span className="text-xs font-medium text-text-secondary flex items-center gap-1 shrink-0 ml-4 pt-1">
+                                Visit <ChevronRight className="w-3.5 h-3.5" />
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                        <div className="absolute inset-0 flex flex-col items-center justify-center bg-gradient-to-t from-white via-white/90 to-white/50 z-10 rounded-xl">
+                          <Lock className="w-5 h-5 text-ink-900 mb-3" />
+                          <p className="text-base font-medium text-ink-900 mb-1">
+                            {extraSources.length} more sources found
+                          </p>
+                          <p className="text-sm text-text-secondary mb-4">Sign in to see all discovered sources</p>
+                          <Link href="/auth/login?returnTo=/appgroup/dashboard" className="btn-primary text-sm py-2 px-6 rounded-full shadow-md hover:shadow-lg transition-all">
+                            Sign in to unlock
+                          </Link>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -746,68 +776,50 @@ function DashboardContent() {
                 )}
 
                 {/* Raw Intelligence Data */}
-                {mode === "deep" && extraSources.length > 0 && (
+                {user && mode === "deep" && extraSources.length > 0 && (
                   <div className="flex flex-col gap-6 relative">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-4">
                         <h3 className="font-display text-3xl text-ink-900">Raw Intelligence Data</h3>
                         <span className="px-3 py-1 bg-background-raised text-ink-900 font-mono text-[10px] uppercase tracking-[0.2em] rounded-full border border-border/50">
-                          {user ? displaySources.length : "5+"} Sources
+                          {extraSources.length} Sources
                         </span>
                       </div>
                     </div>
 
                     <div className="grid grid-cols-1 gap-4">
-                      {displaySources.slice(0, !user ? 7 : (showAllSources ? displaySources.length : 5)).map((s, i) => {
-                        const isBlurred = !user && i >= 5;
-                        return (
-                          <a
-                            key={i}
-                            href={isBlurred ? "#" : s.url}
-                            target={isBlurred ? "_self" : "_blank"}
-                            rel="noopener noreferrer"
-                            className={`bg-white rounded-xl p-5 border border-border/50 transition-all duration-300 group ${isBlurred ? 'blur-[4px] pointer-events-none opacity-60 select-none' : 'hover:border-ink-900/30 hover:shadow-md'}`}
-                          >
-                            <div className="flex items-start justify-between gap-4">
-                              <div className="min-w-0">
-                                <div className="flex items-center gap-3 mb-2">
-                                  <SourceBadge type={s.source_type} />
-                                  <h4 className="font-display text-xl text-ink-900 truncate group-hover:text-accent-green transition-colors">
-                                    {isBlurred ? "Market Intelligence Data Source" : s.title}
-                                  </h4>
-                                </div>
-                                <p className="text-sm font-sans text-text-secondary line-clamp-2 leading-relaxed">
-                                  {isBlurred ? "This is a locked source containing deep market analysis, sentiment data, or a key competitor link. Create a free account to unlock this intelligence and view the full URL." : s.snippet}
-                                </p>
+                      {extraSources.slice(0, showAllSources ? extraSources.length : 5).map((s, i) => (
+                        <a
+                          key={i}
+                          href={s.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="bg-white rounded-xl p-5 border border-border/50 hover:border-ink-900/30 hover:shadow-md transition-all duration-300 group"
+                        >
+                          <div className="flex items-start justify-between gap-4">
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-3 mb-2">
+                                <SourceBadge type={s.source_type} />
+                                <h4 className="font-display text-xl text-ink-900 truncate group-hover:text-accent-green transition-colors">
+                                  {s.title}
+                                </h4>
                               </div>
-                              <ExternalLink className="w-4 h-4 text-border-strong group-hover:text-accent-green shrink-0 transition-colors" />
+                              <p className="text-sm font-sans text-text-secondary line-clamp-2 leading-relaxed">
+                                {s.snippet}
+                              </p>
                             </div>
-                          </a>
-                        );
-                      })}
+                            <ExternalLink className="w-4 h-4 text-border-strong group-hover:text-accent-green shrink-0 transition-colors" />
+                          </div>
+                        </a>
+                      ))}
                     </div>
 
-                    {!user && (
-                      <div className="absolute inset-x-0 bottom-0 h-[280px] flex flex-col items-center justify-end pb-[2px] bg-gradient-to-t from-background via-background/90 to-transparent z-10">
-                        <div className="bg-white/95 backdrop-blur-md p-6 sm:p-8 rounded-2xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] border border-border/50 flex flex-col items-center max-w-md w-[calc(100%-2rem)] text-center mb-6">
-                          <div className="w-12 h-12 rounded-full bg-background-raised flex items-center justify-center mb-4 border border-border/50">
-                            <Lock className="w-5 h-5 text-ink-900" />
-                          </div>
-                          <h4 className="font-display text-2xl text-ink-900 mb-2">Unlock All Sources</h4>
-                          <p className="font-sans text-sm text-text-secondary mb-6 px-4">Create a free account to view the full raw intelligence data, export to PDF, and chat with your research.</p>
-                          <Link href="/auth/login?returnTo=/appgroup/dashboard" className="btn-primary w-full py-3.5 rounded-full text-sm font-medium">
-                            Sign In for Free Validation
-                          </Link>
-                        </div>
-                      </div>
-                    )}
-
-                    {user && displaySources.length > 5 && (
+                    {extraSources.length > 5 && (
                       <button
                         onClick={() => setShowAllSources(!showAllSources)}
                         className="w-full py-4 text-sm font-medium text-text-secondary hover:text-ink-900 bg-background-raised hover:bg-white rounded-xl border border-border/50 transition-all group flex items-center justify-center gap-2 mt-2"
                       >
-                        {showAllSources ? "Collapse Sources" : `View ${displaySources.length - 5} More Sources`}
+                        {showAllSources ? "Collapse Sources" : `View ${extraSources.length - 5} More Sources`}
                         <ChevronRight className={`w-4 h-4 transition-transform ${showAllSources ? '-rotate-90' : 'rotate-90 group-hover:translate-y-0.5'}`} />
                       </button>
                     )}
