@@ -1,11 +1,13 @@
 """
 ShipOrSkip Fetcher Service
 
-- GitHub README fetching (free, no auth needed)
-- Deep page fetching via trafilatura (free, handles JS-heavy sites)
-- Domain blocklist (skip garbage)
-- Title blocklist (skip "best X alternatives" blog posts)
-- URL ranking (prioritize high-value sources)
+- GitHub README fetching
+- Deep page fetching via trafilatura
+- Domain blocklist
+- Title blocklist (blog posts, listicles)
+- Source relevance filtering (drops sources with zero keyword overlap)
+- Caps raw_sources at 25 max
+- URL ranking
 - Context assembly with source-priority budgeting
 """
 
@@ -35,44 +37,34 @@ def _log(msg: str):
     print(f"[ShipOrSkip:Fetcher] {msg}", flush=True)
 
 
+MAX_RAW_SOURCES = 25
+
 # ═══════════════════════════════════════
 # Domain Blocklist
 # ═══════════════════════════════════════
 
 DOMAIN_BLOCKLIST = {
-    # Generic listicles / low-signal
     "forbes.com", "businessinsider.com", "entrepreneur.com",
     "inc.com", "fastcompany.com", "wired.com",
-    # Aggregators
     "g2.com", "capterra.com", "alternativeto.com",
     "slant.co", "sourceforge.net", "softwareadvice.com",
-    # Review/comparison sites (not competitors themselves)
     "futurepedia.io", "pineapplebuilder.com", "bubble.io",
     "flowjam.com", "theresanaiforthat.com",
-    # Job boards
     "indeed.com", "glassdoor.com", "linkedin.com",
-    # Social media
     "twitter.com", "x.com", "facebook.com", "instagram.com",
-    # Paywalled
     "nytimes.com", "wsj.com", "ft.com", "bloomberg.com",
-    # Heavy anti-bot
     "amazon.com", "imdb.com",
-    # Generic tech news
     "techcrunch.com", "theverge.com", "zdnet.com", "cnet.com",
-    # Wikipedia
     "wikipedia.org",
-    # Medium
     "medium.com",
-    # YouTube (not competitors)
     "youtube.com",
-    # App stores (listings, not the apps themselves)
     "play.google.com", "apps.apple.com",
-    # Your own projects
     "worth-the-watch.vercel.app", "shiporskip.vercel.app",
     "ship-or-skip-peach.vercel.app",
+    # Meta/aggregator sites that list tools but aren't tools themselves
+    "soft112.com", "talkwalker.com", "owasp.org",
 }
 
-# High-value domains get priority
 HIGH_VALUE_DOMAINS = {
     "github.com", "producthunt.com", "news.ycombinator.com",
     "indiehackers.com", "devpost.com",
@@ -81,32 +73,39 @@ HIGH_VALUE_DOMAINS = {
 
 # Title patterns that indicate blog posts / listicles, not actual products
 TITLE_BLOCKLIST_PATTERNS = [
-    r"best .+ alternatives",
-    r"\d+ best .+",
-    r"top \d+",
-    r"how to build",
-    r"how to create",
+    r"^best .+ alternatives",
+    r"^\d+ best .+",
+    r"^top \d+",
+    r"^how to build",
+    r"^how to create",
+    r"^how to use",
     r"alternatives for",
-    r"vs\b",  # "X vs Y" comparison articles
+    r"alternatives to",
+    r"alternatives \(",
+    r"vs\b",
     r"reviews?:.+pricing",
     r"reviews?:.+alternatives",
     r"ultimate guide",
     r"complete guide",
+    r"comparison table",
+    r"^looking for",
+    r"^modern assessments",
+    r"^using web-based",
+    r"^machine learning.based",
+    r"a collection of awesome",
+    r"a toolbox for",
 ]
 
 
 def is_blocked(url: str) -> bool:
-    """Check if URL domain is in blocklist."""
     try:
-        domain = url.split("//")[-1].split("/")[0].lower()
-        domain = domain.replace("www.", "")
+        domain = url.split("//")[-1].split("/")[0].lower().replace("www.", "")
         return any(domain.endswith(blocked) for blocked in DOMAIN_BLOCKLIST)
     except Exception:
         return False
 
 
 def is_title_blocked(title: str) -> bool:
-    """Check if title matches a blog/listicle pattern."""
     lower = title.lower().strip()
     for pattern in TITLE_BLOCKLIST_PATTERNS:
         if re.search(pattern, lower):
@@ -114,8 +113,27 @@ def is_title_blocked(title: str) -> bool:
     return False
 
 
+def is_relevant_to_idea(title: str, snippet: str, cleaned_idea: str) -> bool:
+    """Check if a source has ANY keyword overlap with the idea.
+    Drops completely irrelevant sources like 'Car Damage Toolkit' for a quiz app."""
+    if not cleaned_idea:
+        return True  # no idea to check against, keep everything
+
+    idea_words = set(cleaned_idea.lower().split())
+    # Remove very common words that would match anything
+    stop_words = {"app", "tool", "an", "a", "the", "for", "and", "or", "with", "to", "of", "in", "is", "it", "that", "this"}
+    idea_words -= stop_words
+
+    if len(idea_words) == 0:
+        return True
+
+    text = f"{title} {snippet}".lower()
+    # Need at least 1 meaningful keyword overlap
+    overlap = sum(1 for w in idea_words if w in text)
+    return overlap >= 1
+
+
 def url_score(url: str) -> int:
-    """Score a URL for prioritization. Higher = better."""
     try:
         domain = url.split("//")[-1].split("/")[0].lower().replace("www.", "")
     except Exception:
@@ -123,9 +141,7 @@ def url_score(url: str) -> int:
 
     if "github.com" in domain and url.count("/") >= 4:
         return 100
-    if "producthunt.com" in domain and "/posts/" in url:
-        return 95
-    if "producthunt.com" in domain and "/products/" in url:
+    if "producthunt.com" in domain and ("/posts/" in url or "/products/" in url):
         return 95
     for hv in HIGH_VALUE_DOMAINS:
         if domain.endswith(hv):
@@ -147,7 +163,7 @@ def _extract_github_repos(urls: list[str]) -> list[tuple[str, str]]:
         if match:
             owner, repo = match.group(1), match.group(2)
             key = f"{owner}/{repo}".lower()
-            if key not in seen and owner not in ("topics", "search", "trending", "explore"):
+            if key not in seen and owner not in ("topics", "search", "trending", "explore", "orgs"):
                 seen.add(key)
                 repos.append((owner, repo))
     return repos
@@ -190,7 +206,7 @@ async def _fetch_single_readme(http: httpx.AsyncClient, owner: str, repo: str) -
 
 
 # ═══════════════════════════════════════
-# Deep Page Fetcher (trafilatura)
+# Deep Page Fetcher
 # ═══════════════════════════════════════
 
 async def deep_fetch_pages(
@@ -246,6 +262,64 @@ async def deep_fetch_pages(
 
 
 # ═══════════════════════════════════════
+# Raw Sources Builder — with relevance filter + cap
+# ═══════════════════════════════════════
+
+def build_raw_sources(
+    tavily_results: list[dict],
+    github_results: list[str],
+    producthunt_results: list[str],
+    cleaned_idea: str = "",
+) -> list[dict]:
+    """Build filtered, capped, relevance-checked raw sources list."""
+    raw_sources = []
+
+    # From Tavily
+    for r in tavily_results:
+        url, title = r.get("url", ""), r.get("title", "").strip()
+        snippet = (r.get("content", "") or "")[:200].strip()
+        if not url or not title:
+            continue
+        if is_title_blocked(title):
+            continue
+        if not is_relevant_to_idea(title, snippet, cleaned_idea):
+            continue
+        st = "github" if "github.com" in url else "producthunt" if "producthunt.com" in url else "reddit" if "reddit.com" in url else "hackernews" if "news.ycombinator.com" in url else "web"
+        raw_sources.append({"title": title, "url": url, "snippet": snippet, "source_type": st, "score": url_score(url)})
+
+    # From GitHub API
+    for g in github_results:
+        match = re.search(r'\(https://github\.com/([^)]+)\)', g)
+        if match:
+            gh_url = f"https://github.com/{match.group(1)}"
+            if not any(s["url"] == gh_url for s in raw_sources):
+                title = match.group(1)
+                desc = g.split(" — ")[-1].split(" (")[0] if " — " in g else g[:150]
+                if is_relevant_to_idea(title, desc, cleaned_idea):
+                    raw_sources.append({"title": title, "url": gh_url, "snippet": desc[:200], "source_type": "github", "score": 100})
+
+    # From Product Hunt
+    for ph in producthunt_results:
+        match = re.search(r'\((https://[^)]+producthunt[^)]+)\)', ph)
+        if match:
+            ph_url = match.group(1)
+            if not any(s["url"] == ph_url for s in raw_sources):
+                title = ph.split(" — ")[0].replace("Product Hunt: ", "") if " — " in ph else ph[:60]
+                snippet = ph.split(" — ")[-1].split(" (")[0] if " — " in ph else ""
+                if is_relevant_to_idea(title, snippet, cleaned_idea):
+                    raw_sources.append({"title": title, "url": ph_url, "snippet": snippet[:200], "source_type": "producthunt", "score": 95})
+
+    raw_sources.sort(key=lambda s: -s["score"])
+
+    # Cap at MAX_RAW_SOURCES
+    if len(raw_sources) > MAX_RAW_SOURCES:
+        _log(f"  [Sources] Capped from {len(raw_sources)} to {MAX_RAW_SOURCES}")
+        raw_sources = raw_sources[:MAX_RAW_SOURCES]
+
+    return raw_sources
+
+
+# ═══════════════════════════════════════
 # Context Assembly
 # ═══════════════════════════════════════
 
@@ -254,8 +328,8 @@ def assemble_deep_context(
     ph_results: list[str], deep_pages: dict[str, str],
     max_chars: int = 12000,
 ) -> str:
-    github_budget = int(max_chars * 0.40)
-    competitor_budget = int(max_chars * 0.40)
+    github_budget = int(max_chars * 0.30)
+    competitor_budget = int(max_chars * 0.50)
     snippet_budget = int(max_chars * 0.20)
 
     sections = []

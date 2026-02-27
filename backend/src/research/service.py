@@ -22,7 +22,7 @@ from openai import AsyncOpenAI, RateLimitError, APITimeoutError, APIError
 
 from src.config import Settings
 from src.research.schemas import AnalysisResult
-from src.research.fetcher import assemble_fast_context, is_blocked, url_score
+from src.research.fetcher import assemble_fast_context, is_blocked, url_score, build_raw_sources
 from src.research.agents.graph import run_deep_research
 
 
@@ -117,7 +117,7 @@ async def fast_analysis(idea: str, category: str | None, settings: Settings) -> 
         _log(f"    {i+1}. [{has_raw}] {r.get('title','?')[:50]}")
         _log(f"       {r.get('url','?')[:70]}")
 
-    raw_sources = _extract_raw_sources(unique)
+    raw_sources = build_raw_sources(unique, [], [], cleaned)
     _log(f"  [Sources] {len(raw_sources)} sources extracted for frontend")
 
     context = assemble_fast_context(unique, max_chars=6000)
@@ -186,28 +186,6 @@ async def deep_research_stream(
     async for event in run_deep_research(idea, category, settings):
         yield event
     _log(f"═══ DEEP DONE in {time.time()-start:.1f}s ═══")
-
-
-# ═══════════════════════════════════════
-# Raw Sources
-# ═══════════════════════════════════════
-
-def _extract_raw_sources(results: list[dict]) -> list[dict]:
-    sources = []
-    for r in results:
-        url = r.get("url", "")
-        title = r.get("title", "").strip()
-        snippet = (r.get("content", "") or "")[:200].strip()
-        if not url or not title:
-            continue
-        source_type = "web"
-        if "github.com" in url: source_type = "github"
-        elif "producthunt.com" in url: source_type = "producthunt"
-        elif "reddit.com" in url: source_type = "reddit"
-        elif "news.ycombinator.com" in url: source_type = "hackernews"
-        sources.append({"title": title, "url": url, "snippet": snippet, "source_type": source_type, "score": url_score(url)})
-    sources.sort(key=lambda s: -s["score"])
-    return sources
 
 
 # ═══════════════════════════════════════
