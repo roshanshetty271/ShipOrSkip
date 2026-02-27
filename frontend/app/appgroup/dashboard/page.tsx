@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, Suspense, useRef } from "react";
+import { useState, useEffect, Suspense, useRef, useMemo, useCallback, memo } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import {
   ArrowRight,
@@ -26,10 +26,15 @@ import {
   analyzeDeepStream,
   getResearchHistory,
 } from "@/services/api";
-import { Turnstile } from "@marsidev/react-turnstile";
+import dynamic from "next/dynamic";
 import TextareaAutosize from 'react-textarea-autosize';
 import { supabase } from "@/lib/supabase";
 import { getAccessToken } from "@/lib/supabase";
+
+const Turnstile = dynamic(
+  () => import("@marsidev/react-turnstile").then((m) => m.Turnstile),
+  { ssr: false }
+);
 
 interface ResearchItem {
   id: string;
@@ -55,24 +60,26 @@ interface RawSource {
   score: number;
 }
 
+const SOURCE_COLORS: Record<string, string> = {
+  github: "bg-gray-800 text-white",
+  producthunt: "bg-orange-500 text-white",
+  reddit: "bg-orange-600 text-white",
+  hackernews: "bg-orange-400 text-white",
+  web: "bg-ink-100 text-ink-500",
+};
+
+const SOURCE_LABELS: Record<string, string> = {
+  github: "GitHub",
+  producthunt: "Product Hunt",
+  reddit: "Reddit",
+  hackernews: "Hacker News",
+  web: "Web",
+};
+
 function SourceBadge({ type }: { type: string }) {
-  const colors: Record<string, string> = {
-    github: "bg-gray-800 text-white",
-    producthunt: "bg-orange-500 text-white",
-    reddit: "bg-orange-600 text-white",
-    hackernews: "bg-orange-400 text-white",
-    web: "bg-ink-100 text-ink-500",
-  };
-  const label: Record<string, string> = {
-    github: "GitHub",
-    producthunt: "Product Hunt",
-    reddit: "Reddit",
-    hackernews: "Hacker News",
-    web: "Web",
-  };
   return (
-    <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${colors[type] || colors.web}`}>
-      {label[type] || "Web"}
+    <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${SOURCE_COLORS[type] || SOURCE_COLORS.web}`}>
+      {SOURCE_LABELS[type] || "Web"}
     </span>
   );
 }
@@ -92,6 +99,116 @@ function friendlyProgress(raw: string): string {
   if (lower.includes("complete")) return "Almost done...";
   return "Researching...";
 }
+
+const SignInModal = memo(function SignInModal({
+  onClose,
+}: {
+  onClose: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4">
+      <div
+        className="absolute inset-0 bg-background/80 backdrop-blur-sm transition-opacity"
+        onClick={onClose}
+      />
+      <div className="relative bg-white w-full sm:max-w-md rounded-3xl border border-border/50 shadow-xl p-8 sm:p-10 transform transition-all overflow-hidden">
+        <div className="absolute top-0 left-0 w-full h-1.5 bg-accent-green"></div>
+        <button
+          onClick={onClose}
+          className="absolute top-6 right-6 text-text-tertiary hover:text-ink-900 hover:bg-background-raised rounded-full p-2 transition-colors"
+        >
+          <X className="w-5 h-5" />
+        </button>
+
+        <span className="inline-flex items-center gap-2 px-3 py-1 bg-accent-green/10 text-accent-green font-mono text-[10px] uppercase tracking-[0.2em] rounded-full border border-accent-green/20 mb-6 font-bold truncate pr-4">
+          <Zap className="w-3 h-3 fill-accent-green" /> Validation Complete
+        </span>
+        <h3 className="font-display text-3xl font-medium text-ink-900 mb-8 leading-tight pr-8">
+          Sign In To Get More Benefits
+        </h3>
+
+        <div className="space-y-4 mb-8">
+          {[
+            "10 fast + 3 deep analyses daily",
+            "Chat with AI about your results",
+            "Export complete research to PDF",
+            "See all discovered source links",
+            "Access full research history",
+          ].map((f, i) => (
+            <div key={i} className="flex items-center gap-3 text-sm text-text-secondary font-sans leading-relaxed">
+              <div className="w-5 h-5 rounded-full bg-accent-green/10 flex items-center justify-center shrink-0 border border-accent-green/20">
+                <span className="text-accent-green font-bold text-xs">+</span>
+              </div>
+              <span>{f}</span>
+            </div>
+          ))}
+        </div>
+
+        <Link
+          href="/auth/login?returnTo=/appgroup/dashboard"
+          className="btn-primary w-full py-4 text-sm shadow-md"
+          onClick={onClose}
+        >
+          Set Up Free Account
+        </Link>
+      </div>
+    </div>
+  );
+});
+
+const DeleteModal = memo(function DeleteModal({
+  onClose,
+  onDeleted,
+}: {
+  onClose: () => void;
+  onDeleted: () => void;
+}) {
+  const [deleting, setDeleting] = useState(false);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center">
+      <div
+        className="absolute inset-0 bg-black/40 backdrop-blur-sm animate-fade-in"
+        onClick={() => !deleting && onClose()}
+      />
+      <div className="relative bg-white sm:max-w-sm w-full sm:rounded-lg rounded-t-2xl p-6 animate-slide-up shadow-2xl">
+        <p className="text-base font-medium text-ink-900 mb-2">Delete all research?</p>
+        <p className="text-sm text-text-secondary mb-6">
+          This will permanently delete all your research history, chat messages, and notes. This cannot be undone.
+        </p>
+        <div className="flex gap-3">
+          <button
+            onClick={onClose}
+            disabled={deleting}
+            className="flex-1 py-2.5 text-sm font-medium text-text-secondary border border-border/50 rounded-[2px] hover:bg-background-raised transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={async () => {
+              setDeleting(true);
+              try {
+                const token = await getAccessToken();
+                await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/research`, {
+                  method: "DELETE",
+                  headers: token ? { Authorization: `Bearer ${token}` } : {},
+                });
+                onDeleted();
+                onClose();
+              } catch { } finally {
+                setDeleting(false);
+              }
+            }}
+            disabled={deleting}
+            className="flex-1 py-2.5 text-sm font-medium text-white bg-accent rounded-[2px] hover:opacity-90 transition-opacity disabled:opacity-50"
+          >
+            {deleting ? "Deleting..." : "Delete all"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+});
 
 function DashboardContent() {
   const searchParams = useSearchParams();
@@ -195,7 +312,6 @@ function DashboardContent() {
   const [historyLoading, setHistoryLoading] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
-  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     if (user && !authLoading) {
@@ -322,7 +438,7 @@ function DashboardContent() {
     }
   };
 
-  const getField = (key: string): unknown[] => {
+  const getField = useCallback((key: string): unknown[] => {
     if (!result) return [];
     const direct = result[key];
     const fromReport =
@@ -331,9 +447,9 @@ function DashboardContent() {
         : undefined;
     const val = direct || fromReport;
     return Array.isArray(val) ? val : [];
-  };
+  }, [result]);
 
-  const getVerdict = (): string => {
+  const verdict = useMemo(() => {
     if (!result) return "";
     const direct = result.verdict;
     const fromReport =
@@ -341,22 +457,23 @@ function DashboardContent() {
         ? (result.report as Record<string, unknown>).verdict
         : undefined;
     return (direct as string) || (fromReport as string) || "Analysis complete.";
-  };
+  }, [result]);
 
-  const competitors = getField("competitors") as CompetitorItem[];
-  const gaps = getField("gaps") as string[];
-  const pros = getField("pros") as string[];
-  const cons = getField("cons") as string[];
-  const buildPlan = getField("build_plan") as string[];
-  const rawSources = getField("raw_sources") as RawSource[];
+  const competitors = useMemo(() => getField("competitors") as CompetitorItem[], [getField]);
+  const gaps = useMemo(() => getField("gaps") as string[], [getField]);
+  const pros = useMemo(() => getField("pros") as string[], [getField]);
+  const cons = useMemo(() => getField("cons") as string[], [getField]);
+  const buildPlan = useMemo(() => getField("build_plan") as string[], [getField]);
+  const rawSources = useMemo(() => getField("raw_sources") as RawSource[], [getField]);
 
-  // Sources that aren't already shown as competitors
-  const competitorNames = new Set(competitors.map(c => c.name?.toLowerCase().trim()));
-  const competitorUrls = new Set(competitors.map(c => c.url?.toLowerCase().replace(/\/$/, "") || ""));
-  const extraSources = rawSources.filter((s: RawSource) =>
-    !competitorUrls.has(s.url.toLowerCase().replace(/\/$/, "")) &&
-    !competitorNames.has(s.title?.toLowerCase().trim())
-  );
+  const extraSources = useMemo(() => {
+    const names = new Set(competitors.map(c => c.name?.toLowerCase().trim()));
+    const urls = new Set(competitors.map(c => c.url?.toLowerCase().replace(/\/$/, "") || ""));
+    return rawSources.filter((s: RawSource) =>
+      !urls.has(s.url.toLowerCase().replace(/\/$/, "")) &&
+      !names.has(s.title?.toLowerCase().trim())
+    );
+  }, [competitors, rawSources]);
 
   const initials = user?.email ? user.email[0].toUpperCase() : "?";
 
@@ -608,14 +725,14 @@ function DashboardContent() {
                 )}
 
                 {/* Verdict */}
-                {getVerdict() && (
+                {verdict ? (
                   <div className="mb-4">
                     <span className="inline-block px-3 py-1 bg-accent-green/10 text-accent-green font-mono text-[10px] uppercase tracking-[0.2em] mb-4 rounded-full border border-accent-green/20">
                       Executive Verdict
                     </span>
-                    <p className="font-sans text-xl leading-[1.6] text-ink-900 font-medium tracking-tight mb-4 max-w-5xl">{getVerdict()}</p>
+                    <p className="font-sans text-xl leading-[1.6] text-ink-900 font-medium tracking-tight mb-4 max-w-5xl">{verdict}</p>
                   </div>
-                )}
+                ) : null}
 
                 {/* Competitors */}
                 {competitors.length > 0 && (
@@ -877,99 +994,16 @@ function DashboardContent() {
         </main>
       </div>
 
-      {showSignInModal && !user && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4">
-          <div
-            className="absolute inset-0 bg-background/80 backdrop-blur-sm transition-opacity"
-            onClick={() => setShowSignInModal(false)}
-          />
-          <div className="relative bg-white w-full sm:max-w-md rounded-3xl border border-border/50 shadow-xl p-8 sm:p-10 transform transition-all overflow-hidden">
-            <div className="absolute top-0 left-0 w-full h-1.5 bg-accent-green"></div>
-            <button
-              onClick={() => setShowSignInModal(false)}
-              className="absolute top-6 right-6 text-text-tertiary hover:text-ink-900 hover:bg-background-raised rounded-full p-2 transition-colors"
-            >
-              <X className="w-5 h-5" />
-            </button>
+      {showSignInModal && !user ? (
+        <SignInModal onClose={() => setShowSignInModal(false)} />
+      ) : null}
 
-            <span className="inline-flex items-center gap-2 px-3 py-1 bg-accent-green/10 text-accent-green font-mono text-[10px] uppercase tracking-[0.2em] rounded-full border border-accent-green/20 mb-6 font-bold truncate pr-4">
-              <Zap className="w-3 h-3 fill-accent-green" /> Validation Complete
-            </span>
-            <h3 className="font-display text-3xl font-medium text-ink-900 mb-8 leading-tight pr-8">
-              Sign In To Get More Benefits
-            </h3>
-
-            <div className="space-y-4 mb-8">
-              {[
-                "10 fast + 3 deep analyses daily",
-                "Chat with AI about your results",
-                "Export complete research to PDF",
-                "See all discovered source links",
-                "Access full research history",
-              ].map((f, i) => (
-                <div key={i} className="flex items-center gap-3 text-sm text-text-secondary font-sans leading-relaxed">
-                  <div className="w-5 h-5 rounded-full bg-accent-green/10 flex items-center justify-center shrink-0 border border-accent-green/20">
-                    <span className="text-accent-green font-bold text-xs">+</span>
-                  </div>
-                  <span>{f}</span>
-                </div>
-              ))}
-            </div>
-
-            <Link
-              href="/auth/login?returnTo=/appgroup/dashboard"
-              className="btn-primary w-full py-4 text-sm shadow-md"
-              onClick={() => setShowSignInModal(false)}
-            >
-              Set Up Free Account
-            </Link>
-          </div>
-        </div>
-      )}
-
-      {showDeleteModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div
-            className="absolute inset-0 bg-black/40 backdrop-blur-sm animate-fade-in"
-            onClick={() => !deleting && setShowDeleteModal(false)}
-          />
-          <div className="relative bg-white sm:max-w-sm w-full sm:rounded-lg rounded-t-2xl p-6 animate-slide-up shadow-2xl">
-            <p className="text-base font-medium text-ink-900 mb-2">Delete all research?</p>
-            <p className="text-sm text-text-secondary mb-6">
-              This will permanently delete all your research history, chat messages, and notes. This cannot be undone.
-            </p>
-            <div className="flex gap-3">
-              <button
-                onClick={() => setShowDeleteModal(false)}
-                disabled={deleting}
-                className="flex-1 py-2.5 text-sm font-medium text-text-secondary border border-border/50 rounded-[2px] hover:bg-background-raised transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={async () => {
-                  setDeleting(true);
-                  try {
-                    const token = await getAccessToken();
-                    await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/research`, {
-                      method: "DELETE",
-                      headers: token ? { Authorization: `Bearer ${token}` } : {},
-                    });
-                    setHistory([]);
-                    setShowDeleteModal(false);
-                  } catch { } finally {
-                    setDeleting(false);
-                  }
-                }}
-                disabled={deleting}
-                className="flex-1 py-2.5 text-sm font-medium text-white bg-accent rounded-[2px] hover:opacity-90 transition-opacity disabled:opacity-50"
-              >
-                {deleting ? "Deleting..." : "Delete all"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {showDeleteModal ? (
+        <DeleteModal
+          onClose={() => setShowDeleteModal(false)}
+          onDeleted={() => setHistory([])}
+        />
+      ) : null}
     </div>
   );
 }

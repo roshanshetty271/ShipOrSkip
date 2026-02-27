@@ -66,17 +66,10 @@ export default function ResearchDetailPage() {
     }
   }, [user, authLoading, id, router]);
 
-  // Load research
   useEffect(() => {
     if (!user || !id) return;
-    loadResearch();
+    Promise.all([loadResearch(), loadChat(), loadNotes()]);
   }, [user, id]);
-
-  // Load chat when tab switches
-  useEffect(() => {
-    if (tab === "chat" && user && id) loadChat();
-    if (tab === "notes" && user && id) loadNotes();
-  }, [tab, user, id]);
 
   // Auto-scroll chat
   useEffect(() => {
