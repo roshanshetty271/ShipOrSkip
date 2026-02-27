@@ -143,31 +143,7 @@ async def query_planner_node(state: ResearchState, settings: Settings, client: A
 
     queries = _baseline_queries(cleaned)
 
-    try:
-        resp = await client.chat.completions.create(
-            model=MINI,
-            messages=[
-                {"role": "system", "content": (
-                    "Generate 4 ADDITIONAL search queries to find competitors for this product. "
-                    "Focus on angles NOT covered by these existing queries:\n"
-                    + "\n".join(f"- {q}" for q in queries) + "\n\n"
-                    "Try: niche communities, specific tech terms, Reddit/HN discussions, "
-                    "comparison posts, or regional alternatives.\n"
-                    "Return ONLY a JSON array of 4 strings."
-                )},
-                {"role": "user", "content": f"Product: {cleaned}"},
-            ],
-            max_tokens=300, temperature=0.3, timeout=15.0,
-        )
-        raw = resp.choices[0].message.content.strip()
-        raw = re.sub(r"^```(?:json)?\s*", "", raw)
-        raw = re.sub(r"\s*```$", "", raw)
-        bonus = json.loads(raw)
-        if isinstance(bonus, list):
-            queries.extend(bonus[:4])
-            _log(f"  [QueryPlanner] Added {len(bonus[:4])} bonus queries")
-    except Exception as e:
-        _log(f"  [QueryPlanner] Bonus queries failed: {e}")
+
 
     _log(f"  [QueryPlanner] Total {len(queries)} queries:")
     for i, q in enumerate(queries):
