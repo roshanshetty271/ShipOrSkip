@@ -3,10 +3,8 @@ ShipOrSkip Fetcher Service
 
 - GitHub README fetching
 - Deep page fetching via trafilatura
-- Domain blocklist
-- Title blocklist (blog posts, listicles)
-- Source relevance filtering (drops sources with zero keyword overlap)
-- Caps raw_sources at 25 max
+- Domain blocklist (skip known garbage)
+- Title blocklist (skip "best X alternatives" blog posts)
 - URL ranking
 - Context assembly with source-priority budgeting
 """
@@ -37,32 +35,41 @@ def _log(msg: str):
     print(f"[ShipOrSkip:Fetcher] {msg}", flush=True)
 
 
-MAX_RAW_SOURCES = 25
-
 # ═══════════════════════════════════════
 # Domain Blocklist
 # ═══════════════════════════════════════
 
 DOMAIN_BLOCKLIST = {
+    # Generic listicles / low-signal
     "forbes.com", "businessinsider.com", "entrepreneur.com",
     "inc.com", "fastcompany.com", "wired.com",
+    # Aggregators / review sites
     "g2.com", "capterra.com", "alternativeto.com",
     "slant.co", "sourceforge.net", "softwareadvice.com",
     "futurepedia.io", "pineapplebuilder.com", "bubble.io",
-    "flowjam.com", "theresanaiforthat.com",
+    "flowjam.com", "theresanaiforthat.com", "soft112.com",
+    "talkwalker.com", "owasp.org",
+    # Job boards
     "indeed.com", "glassdoor.com", "linkedin.com",
+    # Social media
     "twitter.com", "x.com", "facebook.com", "instagram.com",
+    # Paywalled
     "nytimes.com", "wsj.com", "ft.com", "bloomberg.com",
+    # Heavy anti-bot
     "amazon.com", "imdb.com",
+    # Generic tech news
     "techcrunch.com", "theverge.com", "zdnet.com", "cnet.com",
+    # Wikipedia
     "wikipedia.org",
+    # Medium
     "medium.com",
+    # YouTube
     "youtube.com",
+    # App stores
     "play.google.com", "apps.apple.com",
+    # Own projects
     "worth-the-watch.vercel.app", "shiporskip.vercel.app",
     "ship-or-skip-peach.vercel.app",
-    # Meta/aggregator sites that list tools but aren't tools themselves
-    "soft112.com", "talkwalker.com", "owasp.org",
 }
 
 HIGH_VALUE_DOMAINS = {
@@ -82,16 +89,11 @@ TITLE_BLOCKLIST_PATTERNS = [
     r"alternatives for",
     r"alternatives to",
     r"alternatives \(",
-    r"vs\b",
     r"reviews?:.+pricing",
     r"reviews?:.+alternatives",
     r"ultimate guide",
     r"complete guide",
     r"comparison table",
-    r"^looking for",
-    r"^modern assessments",
-    r"^using web-based",
-    r"^machine learning.based",
     r"a collection of awesome",
     r"a toolbox for",
 ]
@@ -113,26 +115,6 @@ def is_title_blocked(title: str) -> bool:
     return False
 
 
-def is_relevant_to_idea(title: str, snippet: str, cleaned_idea: str) -> bool:
-    """Check if a source has ANY keyword overlap with the idea.
-    Drops completely irrelevant sources like 'Car Damage Toolkit' for a quiz app."""
-    if not cleaned_idea:
-        return True  # no idea to check against, keep everything
-
-    idea_words = set(cleaned_idea.lower().split())
-    # Remove very common words that would match anything
-    stop_words = {"app", "tool", "an", "a", "the", "for", "and", "or", "with", "to", "of", "in", "is", "it", "that", "this"}
-    idea_words -= stop_words
-
-    if len(idea_words) == 0:
-        return True
-
-    text = f"{title} {snippet}".lower()
-    # Need at least 1 meaningful keyword overlap
-    overlap = sum(1 for w in idea_words if w in text)
-    return overlap >= 1
-
-
 def url_score(url: str) -> int:
     try:
         domain = url.split("//")[-1].split("/")[0].lower().replace("www.", "")
@@ -149,6 +131,52 @@ def url_score(url: str) -> int:
     if url.count("/") <= 3:
         return 60
     return 30
+
+
+# ═══════════════════════════════════════
+# Raw Sources Builder — domain + title filter only, no keyword matching
+# ═══════════════════════════════════════
+
+def build_raw_sources(
+    tavily_results: list[dict],
+    github_results: list[str],
+    producthunt_results: list[str],
+    cleaned_idea: str = "",
+) -> list[dict]:
+    """Build filtered raw sources. Only blocks known bad domains and blog post titles.
+    Does NOT do keyword matching — lets the LLM decide relevance."""
+    raw_sources = []
+
+    for r in tavily_results:
+        url, title = r.get("url", ""), r.get("title", "").strip()
+        snippet = (r.get("content", "") or "")[:200].strip()
+        if not url or not title:
+            continue
+        if is_title_blocked(title):
+            continue
+        st = "github" if "github.com" in url else "producthunt" if "producthunt.com" in url else "reddit" if "reddit.com" in url else "hackernews" if "news.ycombinator.com" in url else "web"
+        raw_sources.append({"title": title, "url": url, "snippet": snippet, "source_type": st, "score": url_score(url)})
+
+    for g in github_results:
+        match = re.search(r'\(https://github\.com/([^)]+)\)', g)
+        if match:
+            gh_url = f"https://github.com/{match.group(1)}"
+            if not any(s["url"] == gh_url for s in raw_sources):
+                title = match.group(1)
+                desc = g.split(" — ")[-1].split(" (")[0] if " — " in g else g[:150]
+                raw_sources.append({"title": title, "url": gh_url, "snippet": desc[:200], "source_type": "github", "score": 100})
+
+    for ph in producthunt_results:
+        match = re.search(r'\((https://[^)]+producthunt[^)]+)\)', ph)
+        if match:
+            ph_url = match.group(1)
+            if not any(s["url"] == ph_url for s in raw_sources):
+                title = ph.split(" — ")[0].replace("Product Hunt: ", "") if " — " in ph else ph[:60]
+                snippet = ph.split(" — ")[-1].split(" (")[0] if " — " in ph else ""
+                raw_sources.append({"title": title, "url": ph_url, "snippet": snippet[:200], "source_type": "producthunt", "score": 95})
+
+    raw_sources.sort(key=lambda s: -s["score"])
+    return raw_sources
 
 
 # ═══════════════════════════════════════
@@ -259,64 +287,6 @@ async def deep_fetch_pages(
             _log(f"    ✗ {url[:60]}: empty/too short")
 
     return results
-
-
-# ═══════════════════════════════════════
-# Raw Sources Builder — with relevance filter + cap
-# ═══════════════════════════════════════
-
-def build_raw_sources(
-    tavily_results: list[dict],
-    github_results: list[str],
-    producthunt_results: list[str],
-    cleaned_idea: str = "",
-) -> list[dict]:
-    """Build filtered, capped, relevance-checked raw sources list."""
-    raw_sources = []
-
-    # From Tavily
-    for r in tavily_results:
-        url, title = r.get("url", ""), r.get("title", "").strip()
-        snippet = (r.get("content", "") or "")[:200].strip()
-        if not url or not title:
-            continue
-        if is_title_blocked(title):
-            continue
-        if not is_relevant_to_idea(title, snippet, cleaned_idea):
-            continue
-        st = "github" if "github.com" in url else "producthunt" if "producthunt.com" in url else "reddit" if "reddit.com" in url else "hackernews" if "news.ycombinator.com" in url else "web"
-        raw_sources.append({"title": title, "url": url, "snippet": snippet, "source_type": st, "score": url_score(url)})
-
-    # From GitHub API
-    for g in github_results:
-        match = re.search(r'\(https://github\.com/([^)]+)\)', g)
-        if match:
-            gh_url = f"https://github.com/{match.group(1)}"
-            if not any(s["url"] == gh_url for s in raw_sources):
-                title = match.group(1)
-                desc = g.split(" — ")[-1].split(" (")[0] if " — " in g else g[:150]
-                if is_relevant_to_idea(title, desc, cleaned_idea):
-                    raw_sources.append({"title": title, "url": gh_url, "snippet": desc[:200], "source_type": "github", "score": 100})
-
-    # From Product Hunt
-    for ph in producthunt_results:
-        match = re.search(r'\((https://[^)]+producthunt[^)]+)\)', ph)
-        if match:
-            ph_url = match.group(1)
-            if not any(s["url"] == ph_url for s in raw_sources):
-                title = ph.split(" — ")[0].replace("Product Hunt: ", "") if " — " in ph else ph[:60]
-                snippet = ph.split(" — ")[-1].split(" (")[0] if " — " in ph else ""
-                if is_relevant_to_idea(title, snippet, cleaned_idea):
-                    raw_sources.append({"title": title, "url": ph_url, "snippet": snippet[:200], "source_type": "producthunt", "score": 95})
-
-    raw_sources.sort(key=lambda s: -s["score"])
-
-    # Cap at MAX_RAW_SOURCES
-    if len(raw_sources) > MAX_RAW_SOURCES:
-        _log(f"  [Sources] Capped from {len(raw_sources)} to {MAX_RAW_SOURCES}")
-        raw_sources = raw_sources[:MAX_RAW_SOURCES]
-
-    return raw_sources
 
 
 # ═══════════════════════════════════════
