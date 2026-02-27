@@ -21,7 +21,7 @@ def setup_middleware(app: FastAPI, frontend_url: str, allowed_hosts: list[str] |
         CORSMiddleware,
         allow_origins=[frontend_url, "http://localhost:3000"],
         allow_credentials=True,
-        allow_methods=["GET", "POST"],
+        allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
         allow_headers=["*"],
     )
 

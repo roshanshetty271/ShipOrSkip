@@ -14,9 +14,10 @@ import {
   Lock,
   MessageSquare,
   FileText,
-  Clock,
   StickyNote,
   X,
+  Trash2,
+  Clock,
 } from "lucide-react";
 import Link from "next/link";
 import { useAuth } from "@/hooks/use-auth";
@@ -28,6 +29,7 @@ import {
 import { Turnstile } from "@marsidev/react-turnstile";
 import TextareaAutosize from 'react-textarea-autosize';
 import { supabase } from "@/lib/supabase";
+import { getAccessToken } from "@/lib/supabase";
 
 interface ResearchItem {
   id: string;
@@ -186,6 +188,8 @@ function DashboardContent() {
   const [history, setHistory] = useState<ResearchItem[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     if (user && !authLoading) {
@@ -242,7 +246,7 @@ function DashboardContent() {
           (err: any) => {
             if (err?.response?.status === 429 && err?.response?.data?.detail) {
               const detail = err.response.data.detail;
-              setError(detail.message || "Rate limit exceeded.");
+              setError(typeof detail === "string" ? detail : (detail.message || "Rate limit exceeded."));
               if (detail.limits) setLimits(detail.limits);
             } else if (err?.response?.status === 403 || err?.response?.data?.detail === "Bot verification failed") {
               setVerified(false);
@@ -277,7 +281,7 @@ function DashboardContent() {
       } catch (err: any) {
         if (err?.response?.status === 429 && err?.response?.data?.detail) {
           const detail = err.response.data.detail;
-          setError(detail.message || "Rate limit exceeded.");
+          setError(typeof detail === "string" ? detail : (detail.message || "Rate limit exceeded."));
           if (detail.limits) setLimits(detail.limits);
         } else if (err?.response?.status === 403 || err?.response?.data?.detail === "Bot verification failed") {
           setVerified(false);
@@ -336,6 +340,13 @@ function DashboardContent() {
     !competitorNames.has(s.title?.toLowerCase().trim())
   );
 
+  const displaySources = [...extraSources];
+  if (!user && displaySources.length <= 5) {
+    while (displaySources.length < 7) {
+      displaySources.push({ title: "Locked Source", url: "#", source_type: "web", snippet: "locked", score: 0 });
+    }
+  }
+
   const initials = user?.email ? user.email[0].toUpperCase() : "?";
 
   return (
@@ -382,9 +393,18 @@ function DashboardContent() {
               <p className="text-[10px] font-mono text-text-secondary uppercase tracking-[0.2em] font-medium">
                 Past Research
               </p>
-              <button onClick={loadHistory} className="text-text-tertiary hover:text-accent-green p-1 transition-colors rounded-full hover:bg-accent-green/10">
-                <RotateCcw className="w-3.5 h-3.5" />
-              </button>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => setShowDeleteModal(true)}
+                  className="text-text-tertiary hover:text-accent-green p-1.5 transition-colors rounded-full hover:bg-accent-green/10"
+                  title="Delete all"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+                <button onClick={loadHistory} className="text-text-tertiary hover:text-accent-green p-1.5 transition-colors rounded-full hover:bg-accent-green/10" title="Refresh">
+                  <RotateCcw className="w-3.5 h-3.5" />
+                </button>
+              </div>
             </div>
 
             <div className="flex-grow overflow-y-auto">
@@ -401,21 +421,39 @@ function DashboardContent() {
               ) : (
                 <div className="divide-y divide-border/30 p-2">
                   {history.map((item) => (
-                    <button
-                      key={item.id}
-                      onClick={() => router.push(`/appgroup/research/${item.id}`)}
-                      className="w-full text-left p-3 hover:bg-white rounded-md transition-all group mb-1 block border border-transparent hover:border-border/50 hover:shadow-sm"
-                    >
-                      <p className="text-sm font-sans font-medium line-clamp-2 mb-2 leading-relaxed text-ink-900 group-hover:text-accent-green transition-colors">
-                        {item.idea_text}
-                      </p>
-                      <div className="flex items-center gap-2 text-[10px] font-mono text-text-tertiary uppercase tracking-widest">
-                        {item.analysis_type === "deep" ? <Search className="w-3 h-3 text-accent" /> : <Zap className="w-3 h-3 text-accent-green" />}
-                        <span>{item.analysis_type}</span>
-                        <span className="opacity-50">&middot;</span>
-                        <span>{new Date(item.created_at).toLocaleDateString()}</span>
-                      </div>
-                    </button>
+                    <div key={item.id} className="relative group">
+                      <button
+                        onClick={() => router.push(`/appgroup/research/${item.id}`)}
+                        className="w-full text-left p-3 hover:bg-white rounded-md transition-all mb-1 block border border-transparent hover:border-border/50 hover:shadow-sm pr-8"
+                      >
+                        <p className="text-sm font-sans font-medium line-clamp-2 mb-2 leading-relaxed text-ink-900 group-hover:text-accent-green transition-colors">
+                          {item.idea_text}
+                        </p>
+                        <div className="flex items-center gap-2 text-[10px] font-mono text-text-tertiary uppercase tracking-widest">
+                          {item.analysis_type === "deep" ? <Search className="w-3 h-3 text-accent" /> : <Zap className="w-3 h-3 text-accent-green" />}
+                          <span>{item.analysis_type}</span>
+                          <span className="opacity-50">&middot;</span>
+                          <span>{new Date(item.created_at).toLocaleDateString()}</span>
+                        </div>
+                      </button>
+                      <button
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          try {
+                            const token = await getAccessToken();
+                            await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/research/${item.id}`, {
+                              method: "DELETE",
+                              headers: token ? { Authorization: `Bearer ${token}` } : {},
+                            });
+                            setHistory(prev => prev.filter(h => h.id !== item.id));
+                          } catch { }
+                        }}
+                        className="absolute right-2 top-2 opacity-0 group-hover:opacity-100 text-text-tertiary hover:text-accent transition-all p-1.5 rounded-full hover:bg-accent/10"
+                        title="Delete research"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   ))}
                 </div>
               )}
@@ -554,7 +592,7 @@ function DashboardContent() {
                     <span className="inline-block px-3 py-1 bg-accent-green/10 text-accent-green font-mono text-[10px] uppercase tracking-[0.2em] mb-4 rounded-full border border-accent-green/20">
                       Executive Verdict
                     </span>
-                    <p className="font-display text-xl lg:text-2xl leading-relaxed text-ink-900">{getVerdict()}</p>
+                    <p className="font-sans text-xl leading-[1.6] text-ink-900 font-medium tracking-tight mb-4 max-w-5xl">{getVerdict()}</p>
                   </div>
                 )}
 
@@ -632,7 +670,7 @@ function DashboardContent() {
                             {pros.map((p, i) => (
                               <li key={i} className="flex items-start gap-2">
                                 <span className="font-bold text-accent-green mt-0.5">+</span>
-                                <span className="font-sans text-sm text-text-secondary leading-relaxed">{p}</span>
+                                <span className="font-sans text-[15px] text-ink-900 leading-relaxed font-medium">{p}</span>
                               </li>
                             ))}
                           </ul>
@@ -652,7 +690,7 @@ function DashboardContent() {
                             {cons.map((c, i) => (
                               <li key={i} className="flex items-start gap-2">
                                 <span className="font-bold text-accent mt-0.5">&minus;</span>
-                                <span className="font-sans text-sm text-text-secondary leading-relaxed">{c}</span>
+                                <span className="font-sans text-[15px] text-ink-900 leading-relaxed font-medium">{c}</span>
                               </li>
                             ))}
                           </ul>
@@ -672,7 +710,7 @@ function DashboardContent() {
                             {gaps.map((g, i) => (
                               <li key={i} className="flex items-start gap-2">
                                 <span className="w-1.5 h-1.5 rounded-full bg-blue-600 mt-1.5 shrink-0"></span>
-                                <span className="font-sans text-sm text-text-secondary leading-relaxed">{g}</span>
+                                <span className="font-sans text-[15px] text-ink-900 leading-relaxed font-medium">{g}</span>
                               </li>
                             ))}
                           </ul>
@@ -714,14 +752,14 @@ function DashboardContent() {
                       <div className="flex items-center gap-4">
                         <h3 className="font-display text-3xl text-ink-900">Raw Intelligence Data</h3>
                         <span className="px-3 py-1 bg-background-raised text-ink-900 font-mono text-[10px] uppercase tracking-[0.2em] rounded-full border border-border/50">
-                          {extraSources.length} Sources
+                          {user ? displaySources.length : "5+"} Sources
                         </span>
                       </div>
                     </div>
 
                     <div className="grid grid-cols-1 gap-4">
-                      {extraSources.slice(0, !user ? (extraSources.length > 5 ? 7 : 5) : (showAllSources ? extraSources.length : 5)).map((s, i) => {
-                        const isBlurred = !user && extraSources.length > 5 && i >= 5;
+                      {displaySources.slice(0, !user ? 7 : (showAllSources ? displaySources.length : 5)).map((s, i) => {
+                        const isBlurred = !user && i >= 5;
                         return (
                           <a
                             key={i}
@@ -749,13 +787,13 @@ function DashboardContent() {
                       })}
                     </div>
 
-                    {!user && extraSources.length > 5 && (
+                    {!user && (
                       <div className="absolute inset-x-0 bottom-0 h-[280px] flex flex-col items-center justify-end pb-[2px] bg-gradient-to-t from-background via-background/90 to-transparent z-10">
                         <div className="bg-white/95 backdrop-blur-md p-6 sm:p-8 rounded-2xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] border border-border/50 flex flex-col items-center max-w-md w-[calc(100%-2rem)] text-center mb-6">
                           <div className="w-12 h-12 rounded-full bg-background-raised flex items-center justify-center mb-4 border border-border/50">
                             <Lock className="w-5 h-5 text-ink-900" />
                           </div>
-                          <h4 className="font-display text-2xl text-ink-900 mb-2">Unlock {extraSources.length - 5}+ Sources</h4>
+                          <h4 className="font-display text-2xl text-ink-900 mb-2">Unlock All Sources</h4>
                           <p className="font-sans text-sm text-text-secondary mb-6 px-4">Create a free account to view the full raw intelligence data, export to PDF, and chat with your research.</p>
                           <Link href="/auth/login?returnTo=/appgroup/dashboard" className="btn-primary w-full py-3.5 rounded-full text-sm font-medium">
                             Sign In for Free Validation
@@ -764,12 +802,12 @@ function DashboardContent() {
                       </div>
                     )}
 
-                    {user && extraSources.length > 5 && (
+                    {user && displaySources.length > 5 && (
                       <button
                         onClick={() => setShowAllSources(!showAllSources)}
                         className="w-full py-4 text-sm font-medium text-text-secondary hover:text-ink-900 bg-background-raised hover:bg-white rounded-xl border border-border/50 transition-all group flex items-center justify-center gap-2 mt-2"
                       >
-                        {showAllSources ? "Collapse Sources" : `View ${extraSources.length - 5} More Sources`}
+                        {showAllSources ? "Collapse Sources" : `View ${displaySources.length - 5} More Sources`}
                         <ChevronRight className={`w-4 h-4 transition-transform ${showAllSources ? '-rotate-90' : 'rotate-90 group-hover:translate-y-0.5'}`} />
                       </button>
                     )}
@@ -850,6 +888,50 @@ function DashboardContent() {
             >
               Set Up Free Account
             </Link>
+          </div>
+        </div>
+      )}
+
+      {showDeleteModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div
+            className="absolute inset-0 bg-black/40 backdrop-blur-sm animate-fade-in"
+            onClick={() => !deleting && setShowDeleteModal(false)}
+          />
+          <div className="relative bg-white sm:max-w-sm w-full sm:rounded-lg rounded-t-2xl p-6 animate-slide-up shadow-2xl">
+            <p className="text-base font-medium text-ink-900 mb-2">Delete all research?</p>
+            <p className="text-sm text-text-secondary mb-6">
+              This will permanently delete all your research history, chat messages, and notes. This cannot be undone.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowDeleteModal(false)}
+                disabled={deleting}
+                className="flex-1 py-2.5 text-sm font-medium text-text-secondary border border-border/50 rounded-[2px] hover:bg-background-raised transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={async () => {
+                  setDeleting(true);
+                  try {
+                    const token = await getAccessToken();
+                    await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/research`, {
+                      method: "DELETE",
+                      headers: token ? { Authorization: `Bearer ${token}` } : {},
+                    });
+                    setHistory([]);
+                    setShowDeleteModal(false);
+                  } catch { } finally {
+                    setDeleting(false);
+                  }
+                }}
+                disabled={deleting}
+                className="flex-1 py-2.5 text-sm font-medium text-white bg-accent rounded-[2px] hover:opacity-90 transition-opacity disabled:opacity-50"
+              >
+                {deleting ? "Deleting..." : "Delete all"}
+              </button>
+            </div>
           </div>
         </div>
       )}

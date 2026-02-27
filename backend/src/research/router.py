@@ -36,6 +36,8 @@ router = APIRouter()
 
 _TURNSTILE_TEST_KEYS = {"", "1x0000000000000000000000000000000AA", "1x00000000000000000000AA"}
 
+ADMIN_EMAILS = {"roshanshetty271@gmail.com"}
+
 # ═══════════════════════════════════════
 # Limits
 # ═══════════════════════════════════════
@@ -311,9 +313,9 @@ async def analyze_fast(
         await _check_turnstile(request, req.turnstile_token, settings)
 
     # Rate limit check
-    if user:
+    if user and user.get("email") not in ADMIN_EMAILS:
         await _check_signed_in_fast_limit(user)
-    else:
+    elif not user:
         _check_anon_limit(request, "fast")
 
     try:
@@ -350,9 +352,9 @@ async def analyze_deep(
         await _check_turnstile(request, req.turnstile_token, settings)
 
     # Rate limit check
-    if user:
+    if user and user.get("email") not in ADMIN_EMAILS:
         await _check_signed_in_deep_limit(user, settings)
-    else:
+    elif not user:
         _check_anon_limit(request, "deep")
 
     await _check_concurrent_research(user)
@@ -429,6 +431,33 @@ async def get_research_detail(research_id: str, user: dict = Depends(get_current
         raise
     except Exception:
         raise HTTPException(status_code=500, detail="Could not fetch research")
+
+
+@router.delete("/research")
+async def delete_all_research(user: dict = Depends(require_auth)):
+    sb = get_supabase_client()
+    if not sb:
+        raise HTTPException(status_code=503, detail="Database not configured")
+    try:
+        sb.table("research").delete().eq("user_id", user["id"]).execute()
+        return {"status": "success", "message": "All research deleted"}
+    except Exception as e:
+        logger.exception("Could not delete all research")
+        raise HTTPException(status_code=500, detail="Could not delete research history")
+
+
+@router.delete("/research/{research_id}")
+async def delete_research(research_id: str, user: dict = Depends(require_auth)):
+    _get_research_or_404(research_id, user["id"])
+    sb = get_supabase_client()
+    if not sb:
+        raise HTTPException(status_code=503, detail="Database not configured")
+    try:
+        sb.table("research").delete().eq("id", research_id).eq("user_id", user["id"]).execute()
+        return {"status": "success", "message": "Research deleted"}
+    except Exception as e:
+        logger.exception(f"Could not delete research {research_id}")
+        raise HTTPException(status_code=500, detail="Could not delete research")
 
 
 # ═══════════════════════════════════════
