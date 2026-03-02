@@ -304,7 +304,7 @@ export default function ResearchDetailPage() {
         </div>
       )}
 
-      <div className="w-full overflow-hidden">
+      <div className="w-full">
         {/* ─── Tabs ─── */}
         <div
           className="grid grid-cols-3 brutal-border-b bg-background sticky z-30"
@@ -335,17 +335,12 @@ export default function ResearchDetailPage() {
 
             {/* Verdict */}
             {verdict && (
-              <section className="brutal-border-b bg-white">
-                <div className="grid md:grid-cols-12">
-                  <div className="md:col-span-3 px-6 sm:px-10 py-6 sm:py-8 bg-background border-b md:border-b-0 md:border-r border-border-strong flex items-start">
-                    <p className="text-[10px] font-mono text-text-tertiary uppercase tracking-[0.2em]">Verdict</p>
-                  </div>
-                  <div className="md:col-span-9 px-6 sm:px-10 py-6 sm:py-8">
-                    <p className="text-base sm:text-lg leading-relaxed text-ink-900 max-w-3xl break-words">
-                      {verdict}
-                    </p>
-                  </div>
-                </div>
+              <section className="brutal-border-b bg-white px-6 sm:px-10 py-8 sm:py-10">
+                <p className="text-[10px] font-mono text-text-tertiary uppercase tracking-[0.2em] mb-1">Verdict</p>
+                <div className="w-12 h-[2px] bg-ink-900 mb-5" />
+                <p className="text-base sm:text-lg leading-relaxed text-ink-900 max-w-4xl break-words">
+                  {verdict}
+                </p>
               </section>
             )}
 
