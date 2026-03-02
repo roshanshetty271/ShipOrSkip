@@ -443,6 +443,12 @@ function DashboardContent() {
     e.preventDefault();
     if (!idea.trim() || loading) return;
 
+    if (!user && mode === "deep") {
+      setShowSignInModal(true);
+      setMode("fast");
+      return;
+    }
+
     if (!user && (!verified || !token)) {
       setError("Please complete verification");
       return;
@@ -477,8 +483,12 @@ function DashboardContent() {
             turnstileRef.current?.reset();
           },
           (err: any) => {
-            if (err?.response?.status === 429 && err?.response?.data?.detail) {
-              const detail = err.response.data.detail;
+            const status = err?.response?.status;
+            const detail = err?.response?.data?.detail;
+            if (status === 401 && detail?.sign_in_required) {
+              setShowSignInModal(true);
+              setMode("fast");
+            } else if (status === 429 && detail) {
               setError(typeof detail === "string" ? detail : (detail.message || "Rate limit exceeded."));
               if (detail.remaining_fast !== undefined) {
                 const limitsFromError = {
@@ -493,7 +503,7 @@ function DashboardContent() {
                 setLimits(limitsFromError);
                 if (!user) localStorage.setItem("shiporskip_limits", JSON.stringify(limitsFromError));
               }
-            } else if (err?.response?.status === 403 || err?.response?.data?.detail === "Bot verification failed") {
+            } else if (status === 403 || detail === "Bot verification failed") {
               setVerified(false);
               setToken("");
               setError("Bot verification expired. Please verify again.");
@@ -527,8 +537,11 @@ function DashboardContent() {
 
         if (user) loadHistory();
       } catch (err: any) {
-        if (err?.response?.status === 429 && err?.response?.data?.detail) {
-          const detail = err.response.data.detail;
+        const status = err?.response?.status;
+        const detail = err?.response?.data?.detail;
+        if (status === 401 && detail?.sign_in_required) {
+          setShowSignInModal(true);
+        } else if (status === 429 && detail) {
           setError(typeof detail === "string" ? detail : (detail.message || "Rate limit exceeded."));
           if (detail.remaining_fast !== undefined) {
             const limitsFromError = {
@@ -543,7 +556,7 @@ function DashboardContent() {
             setLimits(limitsFromError);
             if (!user) localStorage.setItem("shiporskip_limits", JSON.stringify(limitsFromError));
           }
-        } else if (err?.response?.status === 403 || err?.response?.data?.detail === "Bot verification failed") {
+        } else if (status === 403 || detail === "Bot verification failed") {
           setVerified(false);
           setToken("");
           setError("Bot verification expired. Please verify again.");
@@ -756,13 +769,20 @@ function DashboardContent() {
                     </button>
                     <button
                       type="button"
-                      onClick={() => setMode("deep")}
+                      onClick={() => {
+                        if (!user) {
+                          setShowSignInModal(true);
+                          return;
+                        }
+                        setMode("deep");
+                      }}
                       className={`flex items-center gap-2 px-5 py-2.5 font-mono text-[10px] uppercase tracking-widest transition-all rounded-full ${mode === "deep"
                         ? "bg-accent/10 text-accent border border-accent/20 font-bold shadow-sm"
                         : "bg-white border border-border/50 text-text-secondary hover:border-accent/30 hover:text-ink-900"
                         }`}
                     >
                       <Search className="w-3.5 h-3.5" /> Deep
+                      {!user && <Lock className="w-3 h-3 ml-0.5 opacity-50" />}
                     </button>
                   </div>
 

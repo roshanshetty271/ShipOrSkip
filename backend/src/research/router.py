@@ -42,10 +42,10 @@ ADMIN_EMAILS = {"roshanshetty271@gmail.com"}
 # Limits
 # ═══════════════════════════════════════
 
-ANON_FAST_LIMIT = 3
-ANON_DEEP_LIMIT = 1
-FREE_FAST_DAILY = 10
-FREE_DEEP_DAILY = 3
+ANON_FAST_LIMIT = 2
+ANON_DEEP_LIMIT = 0
+FREE_FAST_DAILY = 3
+FREE_DEEP_DAILY = 1
 
 # ═══════════════════════════════════════
 # ═══════════════════════════════════════
@@ -211,20 +211,21 @@ async def _check_turnstile(request: Request, token: Optional[str], settings: Set
 
 
 def _check_anon_limit(request: Request, analysis_type: str):
-    """Check anonymous usage from DB. Raises 429 if over limit."""
+    """Check anonymous usage from DB. Raises 401/429 as appropriate."""
+    if analysis_type == "deep":
+        raise HTTPException(status_code=401, detail={
+            "message": "Sign in to access Deep Research.",
+            "sign_in_required": True,
+        })
+
     ip = _get_client_ip(request)
     ip_hash = _hash_ip(ip)
     usage = _get_anon_usage(ip_hash)
     remaining = _get_anon_remaining(request)
 
-    if analysis_type == "fast" and usage["fast"] >= ANON_FAST_LIMIT:
+    if usage["fast"] >= ANON_FAST_LIMIT:
         raise HTTPException(status_code=429, detail={
-            "message": f"You've used all {ANON_FAST_LIMIT} free fast analyses. Sign in to get {FREE_FAST_DAILY} per day.",
-            "sign_in_required": True, **remaining,
-        })
-    if analysis_type == "deep" and usage["deep"] >= ANON_DEEP_LIMIT:
-        raise HTTPException(status_code=429, detail={
-            "message": f"You've used your {ANON_DEEP_LIMIT} free deep research. Sign in to get {FREE_DEEP_DAILY} per day.",
+            "message": f"You've used all {ANON_FAST_LIMIT} free analyses. Sign in to get more.",
             "sign_in_required": True, **remaining,
         })
 
@@ -389,16 +390,17 @@ async def analyze_deep(
     settings: Settings = Depends(get_settings),
     user: Optional[dict] = Depends(get_current_user),
 ):
+    if not user:
+        raise HTTPException(status_code=401, detail={
+            "message": "Sign in to access Deep Research.",
+            "sign_in_required": True,
+        })
     if not settings.openai_api_key:
         raise HTTPException(status_code=503, detail="OpenAI API key not configured")
-    if not user:
-        await _check_turnstile(request, req.turnstile_token, settings)
 
     # Rate limit check
-    if user and user.get("email") not in ADMIN_EMAILS:
+    if user.get("email") not in ADMIN_EMAILS:
         await _check_signed_in_deep_limit(user)
-    elif not user:
-        _check_anon_limit(request, "deep")
 
     await _check_concurrent_research(user)
 
