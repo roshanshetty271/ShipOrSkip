@@ -13,8 +13,10 @@ import {
   Zap,
   Search,
   Loader2,
+  Lock,
 } from "lucide-react";
 import Link from "next/link";
+import ReactMarkdown from "react-markdown";
 import { useAuth } from "@/hooks/use-auth";
 import { getAccessToken } from "@/lib/supabase";
 
@@ -48,6 +50,8 @@ export default function ResearchDetailPage() {
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [chatInput, setChatInput] = useState("");
   const [chatLoading, setChatLoading] = useState(false);
+  const [chatUsed, setChatUsed] = useState(0);
+  const [chatLimit, setChatLimit] = useState(5);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
   // Notes
@@ -103,12 +107,16 @@ export default function ResearchDetailPage() {
       if (resp.ok) {
         const data = await resp.json();
         setMessages(data.messages || []);
+        if (data.chat_used !== undefined) setChatUsed(data.chat_used);
+        if (data.chat_limit !== undefined) setChatLimit(data.chat_limit);
       }
     } catch { }
   };
 
+  const chatAtLimit = chatUsed >= chatLimit;
+
   const sendChat = async () => {
-    if (!chatInput.trim() || chatLoading) return;
+    if (!chatInput.trim() || chatLoading || chatAtLimit) return;
     const msg = chatInput.trim();
     setChatInput("");
     setMessages((prev) => [...prev, { role: "user", content: msg }]);
@@ -123,10 +131,18 @@ export default function ResearchDetailPage() {
       });
       if (!resp.ok) {
         const err = await resp.json();
-        throw new Error(err.detail || "Chat failed");
+        const detail = err.detail;
+        if (resp.status === 429 && typeof detail === "object") {
+          setChatUsed(detail.chat_used ?? chatLimit);
+          setChatLimit(detail.chat_limit ?? chatLimit);
+          throw new Error(detail.message || "Message limit reached.");
+        }
+        throw new Error(typeof detail === "string" ? detail : detail?.message || "Chat failed");
       }
       const data = await resp.json();
       setMessages((prev) => [...prev, { role: "assistant", content: data.reply }]);
+      if (data.chat_used !== undefined) setChatUsed(data.chat_used);
+      if (data.chat_limit !== undefined) setChatLimit(data.chat_limit);
     } catch (e: any) {
       setMessages((prev) => [
         ...prev,
@@ -230,18 +246,18 @@ export default function ResearchDetailPage() {
   const verdict = result.verdict || "";
 
   return (
-    <div className="min-h-screen bg-background text-ink-900 font-sans">
+    <div className="min-h-screen bg-background text-ink-900 font-sans overflow-x-hidden">
       {/* Brutal Header */}
-      <header className="brutal-border-b bg-background sticky top-0 z-40">
-        <div className="w-full h-14 px-4 sm:px-8 flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <button onClick={() => router.push("/appgroup/dashboard")} className="text-ink-900 hover:bg-ink-900 hover:text-white transition-none p-1 border border-transparent hover:border-ink-900">
+      <header className="brutal-border-b bg-background sticky top-0 z-40 overflow-hidden">
+        <div className="w-full px-4 sm:px-8 py-3 flex items-center justify-between gap-4">
+          <div className="flex items-center gap-4 min-w-0 flex-1">
+            <button onClick={() => router.push("/appgroup/dashboard")} className="text-ink-900 hover:bg-ink-900 hover:text-white transition-none p-1 border border-transparent hover:border-ink-900 shrink-0">
               <ArrowLeft className="w-5 h-5" />
             </button>
-            <div className="min-w-0 border-l border-border-strong pl-4 ml-2">
-              <p className="font-serif text-lg truncate max-w-md tracking-tight leading-none pt-1">{research.idea_text}</p>
+            <div className="min-w-0 border-l border-border-strong pl-4 ml-2 overflow-hidden">
+              <p className="font-serif text-lg truncate tracking-tight leading-none pt-1">{research.idea_text}</p>
               <div className="flex items-center gap-2 text-[10px] font-mono tracking-[0.2em] uppercase text-text-tertiary mt-1">
-                {research.analysis_type === "deep" ? <Search className="w-3 h-3" /> : <Zap className="w-3 h-3" />}
+                {research.analysis_type === "deep" ? <Search className="w-3 h-3 shrink-0" /> : <Zap className="w-3 h-3 shrink-0" />}
                 <span>{research.analysis_type}</span>
                 <span>//</span>
                 <span>{new Date(research.created_at).toLocaleDateString()}</span>
@@ -251,7 +267,7 @@ export default function ResearchDetailPage() {
           <button
             onClick={downloadPdf}
             disabled={pdfLoading}
-            className="btn-secondary text-[10px] py-1.5 px-3"
+            className="btn-secondary text-[10px] py-1.5 px-3 shrink-0"
           >
             {pdfLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-2 inline" /> : <Download className="w-3.5 h-3.5 mr-2 inline" />}
             EXPORT
@@ -259,7 +275,7 @@ export default function ResearchDetailPage() {
         </div>
       </header>
 
-      <div className="w-full mx-auto">
+      <div className="w-full mx-auto overflow-hidden">
         {/* Brutal Tabs - Full width border grid */}
         <div className="grid grid-cols-3 brutal-border-b bg-background sticky top-14 z-30">
           {[
@@ -288,7 +304,7 @@ export default function ResearchDetailPage() {
             {verdict && (
               <div className="px-4 sm:px-8 py-12 brutal-border-b bg-white">
                 <p className="text-[10px] font-mono text-ink-900 uppercase tracking-[0.2em] mb-6 border border-ink-900 inline-block px-2 py-1">Verdict</p>
-                <p className="font-serif text-3xl lg:text-4xl leading-tight text-ink-900 max-w-4xl text-balance">{verdict}</p>
+                <p className="font-serif text-3xl lg:text-4xl leading-tight text-ink-900 max-w-4xl text-balance break-words">{verdict}</p>
               </div>
             )}
 
@@ -298,11 +314,11 @@ export default function ResearchDetailPage() {
                 <div className="md:col-span-3 p-4 sm:p-8 bg-background border-b md:border-b-0 md:border-r border-border-strong">
                   <p className="text-[10px] font-mono text-ink-900 uppercase tracking-[0.2em]">Competitors</p>
                 </div>
-                <div className="md:col-span-9 divide-y divide-border-strong bg-white">
+                <div className="md:col-span-9 divide-y divide-border-strong bg-white overflow-hidden">
                   {competitors.map((c, i) => (
-                    <div key={i} className="group flex flex-col sm:flex-row items-start justify-between p-6 sm:p-8 hover:bg-background transition-none">
-                      <div className="max-w-[85%]">
-                        <div className="flex items-center gap-4 mb-3">
+                    <div key={i} className="group flex flex-col sm:flex-row items-start justify-between p-6 sm:p-8 hover:bg-background transition-none overflow-hidden">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-4 mb-3 flex-wrap">
                           <p className="font-serif text-2xl">{c.name}</p>
                           {c.threat_level && (
                             <span className={`px-2 py-1 text-[9px] uppercase font-mono tracking-[0.2em] border ${c.threat_level === "high" ? "bg-accent text-white border-accent" :
@@ -313,10 +329,10 @@ export default function ResearchDetailPage() {
                             </span>
                           )}
                         </div>
-                        <p className="text-sm text-ink-800 leading-relaxed font-mono max-w-3xl mb-4">{c.description}</p>
+                        <p className="text-sm text-ink-800 leading-relaxed font-mono max-w-3xl mb-4 break-words">{c.description}</p>
                         {c.differentiator && (
-                          <div className="bg-background border border-border-strong p-3 inline-block">
-                            <p className="text-[10px] text-ink-900 font-mono uppercase tracking-widest">
+                          <div className="bg-background border border-border-strong p-3">
+                            <p className="text-[10px] text-ink-900 font-mono uppercase tracking-widest break-words">
                               <span className="font-bold pr-2">// GAP:</span>{c.differentiator}
                             </p>
                           </div>
@@ -401,65 +417,85 @@ export default function ResearchDetailPage() {
 
         {/* ═══ CHAT TAB ═══ */}
         {tab === "chat" && (
-          <div className="max-w-3xl">
-            <div className="card-minimal min-h-[400px] flex flex-col">
-              <p className="text-xs font-mono text-secondary uppercase tracking-widest mb-4">
-                Ask follow-up questions about this research
-              </p>
-
-              {/* Messages */}
-              <div className="flex-1 overflow-y-auto max-h-[500px] space-y-4 mb-4">
-                {messages.length === 0 && !chatLoading && (
-                  <div className="text-center py-12">
-                    <MessageSquare className="w-8 h-8 text-border-strong mx-auto mb-3" />
-                    <p className="text-sm text-secondary mb-1">No messages yet</p>
-                    <p className="text-xs text-text-tertiary">
-                      Ask about competitors, tech stacks, market gaps, or anything else about this research.
-                    </p>
-                  </div>
-                )}
-                {messages.map((msg, i) => (
-                  <div key={i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
-                    <div className={`max-w-[80%] rounded-lg px-4 py-3 text-sm leading-relaxed ${msg.role === "user"
-                      ? "bg-ink-900 text-white"
-                      : "bg-background-sunken text-secondary"
-                      }`}>
+          <div className="flex flex-col h-[calc(100vh-7.5rem)]">
+            {/* Messages */}
+            <div className="flex-1 overflow-y-auto px-4 sm:px-8 py-6 space-y-6">
+              {messages.length === 0 && !chatLoading && (
+                <div className="text-center py-20">
+                  <MessageSquare className="w-8 h-8 text-border-strong mx-auto mb-3" />
+                  <p className="text-sm text-secondary mb-1">No messages yet</p>
+                  <p className="text-xs text-text-tertiary max-w-sm mx-auto">
+                    Ask about competitors, tech stacks, market gaps, or anything else about this research.
+                  </p>
+                </div>
+              )}
+              {messages.map((msg, i) => (
+                <div key={i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
+                  {msg.role === "user" ? (
+                    <div className="max-w-[75%] bg-ink-900 text-white rounded-lg px-4 py-3 text-sm leading-relaxed">
                       {msg.content}
                     </div>
-                  </div>
-                ))}
-                {chatLoading && (
-                  <div className="flex justify-start">
-                    <div className="bg-background-sunken rounded-lg px-4 py-3">
-                      <div className="flex gap-1">
-                        <div className="w-2 h-2 rounded-full bg-border-strong animate-bounce" style={{ animationDelay: "0ms" }} />
-                        <div className="w-2 h-2 rounded-full bg-border-strong animate-bounce" style={{ animationDelay: "150ms" }} />
-                        <div className="w-2 h-2 rounded-full bg-border-strong animate-bounce" style={{ animationDelay: "300ms" }} />
-                      </div>
+                  ) : (
+                    <div className="max-w-[85%] bg-white border border-border-strong rounded-lg px-5 py-4 text-sm leading-relaxed text-ink-900 prose prose-sm prose-neutral max-w-none
+                      prose-headings:font-mono prose-headings:text-ink-900 prose-headings:tracking-tight prose-headings:text-sm prose-headings:font-bold prose-headings:mt-4 prose-headings:mb-2
+                      prose-p:my-2 prose-p:leading-relaxed
+                      prose-ul:my-2 prose-ul:pl-4 prose-ol:my-2 prose-ol:pl-4
+                      prose-li:my-0.5
+                      prose-strong:text-ink-900 prose-strong:font-bold
+                      prose-a:text-accent prose-a:underline prose-a:break-all
+                      prose-code:bg-background-sunken prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:text-xs prose-code:before:content-none prose-code:after:content-none">
+                      <ReactMarkdown>{msg.content}</ReactMarkdown>
+                    </div>
+                  )}
+                </div>
+              ))}
+              {chatLoading && (
+                <div className="flex justify-start">
+                  <div className="bg-white border border-border-strong rounded-lg px-5 py-4">
+                    <div className="flex gap-1.5">
+                      <div className="w-2 h-2 rounded-full bg-border-strong animate-bounce" style={{ animationDelay: "0ms" }} />
+                      <div className="w-2 h-2 rounded-full bg-border-strong animate-bounce" style={{ animationDelay: "150ms" }} />
+                      <div className="w-2 h-2 rounded-full bg-border-strong animate-bounce" style={{ animationDelay: "300ms" }} />
                     </div>
                   </div>
-                )}
-                <div ref={chatEndRef} />
-              </div>
+                </div>
+              )}
+              <div ref={chatEndRef} />
+            </div>
 
-              {/* Input */}
-              <div className="flex gap-3 border-t border-border pt-4">
-                <input
-                  type="text"
-                  value={chatInput}
-                  onChange={(e) => setChatInput(e.target.value)}
-                  onKeyDown={handleChatKeyDown}
-                  placeholder="Ask a follow-up question..."
-                  className="flex-1 bg-background-sunken rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-border-strong placeholder:text-text-tertiary"
-                  disabled={chatLoading}
-                />
-                <button
-                  onClick={sendChat}
-                  disabled={!chatInput.trim() || chatLoading}
-                  className="btn-primary px-4 py-2.5 disabled:opacity-30"
-                >
-                  <Send className="w-4 h-4" />
-                </button>
+            {/* Input — pinned to bottom */}
+            <div className="border-t border-border-strong bg-background px-4 sm:px-8 py-4">
+              <div className="max-w-3xl mx-auto">
+                {chatAtLimit ? (
+                  <div className="flex items-center justify-center gap-2 py-2 text-xs font-mono text-text-tertiary uppercase tracking-[0.15em]">
+                    <Lock className="w-3.5 h-3.5" />
+                    <span>{chatLimit} of {chatLimit} messages used — limit reached</span>
+                  </div>
+                ) : (
+                  <div className="flex gap-3 items-end">
+                    <input
+                      type="text"
+                      value={chatInput}
+                      onChange={(e) => setChatInput(e.target.value)}
+                      onKeyDown={handleChatKeyDown}
+                      placeholder="Ask a follow-up question..."
+                      className="flex-1 bg-white border border-border-strong px-4 py-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-ink-900 placeholder:text-text-tertiary"
+                      disabled={chatLoading}
+                    />
+                    <button
+                      onClick={sendChat}
+                      disabled={!chatInput.trim() || chatLoading}
+                      className="btn-primary px-4 py-2.5 disabled:opacity-30"
+                    >
+                      <Send className="w-4 h-4" />
+                    </button>
+                  </div>
+                )}
+                {!chatAtLimit && (
+                  <p className="text-[10px] font-mono text-text-tertiary uppercase tracking-[0.15em] mt-2 text-right">
+                    {chatUsed} of {chatLimit} messages used
+                  </p>
+                )}
               </div>
             </div>
           </div>

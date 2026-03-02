@@ -510,6 +510,9 @@ class ChatMessage(BaseModel):
     message: str = Field(..., max_length=1000)
 
 
+CHAT_MSG_LIMIT = 5
+
+
 @router.post("/research/{research_id}/chat")
 async def send_chat_message(
     research_id: str,
@@ -525,18 +528,15 @@ async def send_chat_message(
     if not sb:
         raise HTTPException(status_code=503, detail="Database not configured")
 
-    try:
-        profile = sb.table("profiles").select("tier").eq("id", user["id"]).single().execute()
-        tier = profile.data.get("tier", "free") if profile.data else "free"
-        if tier == "free":
-            chat_count = sb.table("chat_messages").select("id", count="exact") \
-                .eq("research_id", research_id).eq("role", "user").execute()
-            if chat_count.count and chat_count.count >= 5:
-                raise HTTPException(status_code=429, detail="Free tier: 5 messages per research.")
-    except HTTPException:
-        raise
-    except Exception:
-        pass
+    chat_count_result = sb.table("chat_messages").select("id", count="exact") \
+        .eq("research_id", research_id).eq("role", "user").execute()
+    used = chat_count_result.count or 0
+    if used >= CHAT_MSG_LIMIT:
+        raise HTTPException(status_code=429, detail={
+            "message": f"You've used all {CHAT_MSG_LIMIT} follow-up messages for this research.",
+            "chat_used": used,
+            "chat_limit": CHAT_MSG_LIMIT,
+        })
 
     history = []
     try:
@@ -562,7 +562,7 @@ async def send_chat_message(
     except Exception as e:
         logger.warning(f"Could not save chat messages: {e}")
 
-    return {"reply": reply}
+    return {"reply": reply, "chat_used": used + 1, "chat_limit": CHAT_MSG_LIMIT}
 
 
 @router.get("/research/{research_id}/chat/history")
@@ -570,13 +570,15 @@ async def get_chat_history(research_id: str, user: dict = Depends(require_auth))
     _get_research_or_404(research_id, user["id"])
     sb = get_supabase_client()
     if not sb:
-        return {"messages": []}
+        return {"messages": [], "chat_used": 0, "chat_limit": CHAT_MSG_LIMIT}
     try:
         result = sb.table("chat_messages").select("role, content, created_at") \
             .eq("research_id", research_id).order("created_at").execute()
-        return {"messages": result.data or []}
+        msgs = result.data or []
+        used = sum(1 for m in msgs if m.get("role") == "user")
+        return {"messages": msgs, "chat_used": used, "chat_limit": CHAT_MSG_LIMIT}
     except Exception:
-        return {"messages": []}
+        return {"messages": [], "chat_used": 0, "chat_limit": CHAT_MSG_LIMIT}
 
 
 # ═══════════════════════════════════════

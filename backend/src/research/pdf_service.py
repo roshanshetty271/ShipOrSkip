@@ -8,6 +8,28 @@ Add to requirements.txt: fpdf2==2.8.2
 from fpdf import FPDF
 from datetime import datetime
 
+_UNICODE_MAP = {
+    "\u2014": "--",   # em dash
+    "\u2013": "-",    # en dash
+    "\u2018": "'",    # left single quote
+    "\u2019": "'",    # right single quote
+    "\u201c": '"',    # left double quote
+    "\u201d": '"',    # right double quote
+    "\u2022": "-",    # bullet
+    "\u2026": "...",  # ellipsis
+    "\u25c6": "-",    # diamond
+    "\u2212": "-",    # minus sign
+    "\u00a0": " ",    # non-breaking space
+    "\u200b": "",     # zero-width space
+}
+
+
+def _safe(text: str) -> str:
+    """Sanitize text to latin-1 safe characters for fpdf2's built-in fonts."""
+    for char, repl in _UNICODE_MAP.items():
+        text = text.replace(char, repl)
+    return text.encode("latin-1", errors="replace").decode("latin-1")
+
 
 def generate_research_pdf(research: dict) -> bytes:
     """Generate a formatted PDF report from a research record."""
@@ -39,14 +61,14 @@ def generate_research_pdf(research: dict) -> bytes:
     pdf.set_text_color(0, 0, 0)
     _section_header(pdf, "Idea")
     pdf.set_font("Helvetica", "", 11)
-    pdf.multi_cell(0, 6, idea)
+    pdf.multi_cell(0, 6, _safe(idea))
     pdf.ln(3)
 
     pdf.set_font("Helvetica", "", 9)
     pdf.set_text_color(120, 120, 120)
     meta_parts = [f"Type: {analysis_type.title()}"]
     if category:
-        meta_parts.append(f"Category: {category}")
+        meta_parts.append(f"Category: {_safe(category)}")
     if created:
         try:
             dt = datetime.fromisoformat(created.replace("Z", "+00:00"))
@@ -62,7 +84,7 @@ def generate_research_pdf(research: dict) -> bytes:
         _section_header(pdf, "Verdict")
         pdf.set_font("Helvetica", "", 11)
         pdf.set_text_color(0, 0, 0)
-        pdf.multi_cell(0, 6, verdict)
+        pdf.multi_cell(0, 6, _safe(verdict))
         pdf.ln(6)
 
     # ─── Competitors ───
@@ -72,7 +94,7 @@ def generate_research_pdf(research: dict) -> bytes:
         for i, c in enumerate(competitors):
             pdf.set_font("Helvetica", "B", 10)
             pdf.set_text_color(0, 0, 0)
-            name = c.get("name", f"Competitor {i+1}")
+            name = _safe(c.get("name", f"Competitor {i+1}"))
             threat = c.get("threat_level", "")
             pdf.cell(0, 6, f"{name}" + (f"  [{threat} threat]" if threat else ""), new_x="LMARGIN", new_y="NEXT")
 
@@ -80,19 +102,19 @@ def generate_research_pdf(research: dict) -> bytes:
             pdf.set_text_color(80, 80, 80)
             desc = c.get("description", "")
             if desc:
-                pdf.multi_cell(0, 5, desc)
+                pdf.multi_cell(0, 5, _safe(desc))
 
             diff = c.get("differentiator", "")
             if diff:
                 pdf.set_font("Helvetica", "I", 9)
                 pdf.set_text_color(100, 100, 100)
-                pdf.multi_cell(0, 5, f"Gap: {diff}")
+                pdf.multi_cell(0, 5, _safe(f"Gap: {diff}"))
 
             url = c.get("url", "")
             if url:
                 pdf.set_font("Helvetica", "", 8)
                 pdf.set_text_color(60, 100, 180)
-                pdf.cell(0, 5, url, new_x="LMARGIN", new_y="NEXT")
+                pdf.cell(0, 5, _safe(url), new_x="LMARGIN", new_y="NEXT")
 
             pdf.ln(3)
 
@@ -103,8 +125,7 @@ def generate_research_pdf(research: dict) -> bytes:
         pdf.set_font("Helvetica", "", 10)
         pdf.set_text_color(0, 0, 0)
         for g in gaps:
-            pdf.cell(5, 6, chr(9670))  # diamond
-            pdf.multi_cell(0, 6, f"  {g}")
+            pdf.multi_cell(0, 6, _safe(f"*  {g}"))
         pdf.ln(4)
 
     # ─── Pros ───
@@ -114,7 +135,7 @@ def generate_research_pdf(research: dict) -> bytes:
         pdf.set_font("Helvetica", "", 10)
         pdf.set_text_color(45, 106, 79)  # green
         for p in pros:
-            pdf.multi_cell(0, 6, f"+  {p}")
+            pdf.multi_cell(0, 6, _safe(f"+  {p}"))
         pdf.ln(4)
 
     # ─── Cons ───
@@ -124,7 +145,7 @@ def generate_research_pdf(research: dict) -> bytes:
         pdf.set_font("Helvetica", "", 10)
         pdf.set_text_color(230, 57, 70)  # red
         for c in cons:
-            pdf.multi_cell(0, 6, f"-  {c}")
+            pdf.multi_cell(0, 6, _safe(f"-  {c}"))
         pdf.ln(4)
 
     # ─── Build Plan ───
@@ -134,7 +155,7 @@ def generate_research_pdf(research: dict) -> bytes:
         pdf.set_font("Helvetica", "", 10)
         pdf.set_text_color(0, 0, 0)
         for i, step in enumerate(build_plan):
-            pdf.multi_cell(0, 6, f"{str(i+1).zfill(2)}.  {step}")
+            pdf.multi_cell(0, 6, _safe(f"{str(i+1).zfill(2)}.  {step}"))
         pdf.ln(4)
 
     # ─── Notes ───
@@ -142,7 +163,7 @@ def generate_research_pdf(research: dict) -> bytes:
         _section_header(pdf, "Your Notes")
         pdf.set_font("Helvetica", "", 10)
         pdf.set_text_color(0, 0, 0)
-        pdf.multi_cell(0, 6, notes)
+        pdf.multi_cell(0, 6, _safe(notes))
         pdf.ln(4)
 
     # ─── Footer ───
