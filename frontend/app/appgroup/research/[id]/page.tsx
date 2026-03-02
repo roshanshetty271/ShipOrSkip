@@ -335,11 +335,17 @@ export default function ResearchDetailPage() {
 
             {/* Verdict */}
             {verdict && (
-              <section className="px-6 sm:px-10 lg:px-16 py-10 sm:py-14 brutal-border-b bg-white">
-                <p className="text-[10px] font-mono text-text-tertiary uppercase tracking-[0.2em] mb-4">Verdict</p>
-                <p className="font-serif text-2xl sm:text-3xl lg:text-4xl leading-snug text-ink-900 max-w-4xl text-pretty break-words">
-                  {verdict}
-                </p>
+              <section className="brutal-border-b bg-white">
+                <div className="grid md:grid-cols-12">
+                  <div className="md:col-span-3 px-6 sm:px-10 py-6 sm:py-8 bg-background border-b md:border-b-0 md:border-r border-border-strong flex items-start">
+                    <p className="text-[10px] font-mono text-text-tertiary uppercase tracking-[0.2em]">Verdict</p>
+                  </div>
+                  <div className="md:col-span-9 px-6 sm:px-10 py-6 sm:py-8">
+                    <p className="text-base sm:text-lg leading-relaxed text-ink-900 max-w-3xl break-words">
+                      {verdict}
+                    </p>
+                  </div>
+                </div>
               </section>
             )}
 

@@ -24,21 +24,31 @@ _UNICODE_MAP = {
 }
 
 
-def _safe(text: str) -> str:
+def _safe(text) -> str:
     """Sanitize text to latin-1 safe characters for fpdf2's built-in fonts."""
+    if text is None:
+        return ""
+    text = str(text)
     for char, repl in _UNICODE_MAP.items():
         text = text.replace(char, repl)
     return text.encode("latin-1", errors="replace").decode("latin-1")
 
 
+def _str(val, default="") -> str:
+    """Coerce a value to string, returning default for None."""
+    if val is None:
+        return default
+    return str(val)
+
+
 def generate_research_pdf(research: dict) -> bytes:
     """Generate a formatted PDF report from a research record."""
-    idea = research.get("idea_text", "Unknown idea")
-    category = research.get("category", "Not specified")
-    analysis_type = research.get("analysis_type", "fast")
-    created = research.get("created_at", "")
-    result = research.get("result", {})
-    notes = research.get("notes", "")
+    idea = _str(research.get("idea_text"), "Unknown idea")
+    category = _str(research.get("category"), "")
+    analysis_type = _str(research.get("analysis_type"), "fast")
+    created = _str(research.get("created_at"), "")
+    result = research.get("result") or {}
+    notes = _str(research.get("notes"), "")
 
     pdf = FPDF()
     pdf.set_auto_page_break(auto=True, margin=20)
@@ -79,7 +89,7 @@ def generate_research_pdf(research: dict) -> bytes:
     pdf.ln(8)
 
     # ─── Verdict ───
-    verdict = result.get("verdict", "")
+    verdict = _str(result.get("verdict"))
     if verdict:
         _section_header(pdf, "Verdict")
         pdf.set_font("Helvetica", "", 11)
@@ -88,29 +98,31 @@ def generate_research_pdf(research: dict) -> bytes:
         pdf.ln(6)
 
     # ─── Competitors ───
-    competitors = result.get("competitors", [])
+    competitors = result.get("competitors") or []
     if competitors:
         _section_header(pdf, f"Similar Products ({len(competitors)})")
         for i, c in enumerate(competitors):
+            if not isinstance(c, dict):
+                continue
             pdf.set_font("Helvetica", "B", 10)
             pdf.set_text_color(0, 0, 0)
-            name = _safe(c.get("name", f"Competitor {i+1}"))
-            threat = c.get("threat_level", "")
+            name = _safe(_str(c.get("name"), f"Competitor {i+1}"))
+            threat = _str(c.get("threat_level"))
             pdf.cell(0, 6, f"{name}" + (f"  [{threat} threat]" if threat else ""), new_x="LMARGIN", new_y="NEXT")
 
             pdf.set_font("Helvetica", "", 9)
             pdf.set_text_color(80, 80, 80)
-            desc = c.get("description", "")
+            desc = _str(c.get("description"))
             if desc:
                 pdf.multi_cell(0, 5, _safe(desc))
 
-            diff = c.get("differentiator", "")
+            diff = _str(c.get("differentiator"))
             if diff:
                 pdf.set_font("Helvetica", "I", 9)
                 pdf.set_text_color(100, 100, 100)
                 pdf.multi_cell(0, 5, _safe(f"Gap: {diff}"))
 
-            url = c.get("url", "")
+            url = _str(c.get("url"))
             if url:
                 pdf.set_font("Helvetica", "", 8)
                 pdf.set_text_color(60, 100, 180)
@@ -119,43 +131,43 @@ def generate_research_pdf(research: dict) -> bytes:
             pdf.ln(3)
 
     # ─── Market Gaps ───
-    gaps = result.get("gaps", [])
+    gaps = result.get("gaps") or []
     if gaps:
         _section_header(pdf, "Market Gaps")
         pdf.set_font("Helvetica", "", 10)
         pdf.set_text_color(0, 0, 0)
         for g in gaps:
-            pdf.multi_cell(0, 6, _safe(f"*  {g}"))
+            pdf.multi_cell(0, 6, _safe(f"*  {_str(g)}"))
         pdf.ln(4)
 
     # ─── Pros ───
-    pros = result.get("pros", [])
+    pros = result.get("pros") or []
     if pros:
         _section_header(pdf, "Pros")
         pdf.set_font("Helvetica", "", 10)
-        pdf.set_text_color(45, 106, 79)  # green
+        pdf.set_text_color(45, 106, 79)
         for p in pros:
-            pdf.multi_cell(0, 6, _safe(f"+  {p}"))
+            pdf.multi_cell(0, 6, _safe(f"+  {_str(p)}"))
         pdf.ln(4)
 
     # ─── Cons ───
-    cons = result.get("cons", [])
+    cons = result.get("cons") or []
     if cons:
         _section_header(pdf, "Cons")
         pdf.set_font("Helvetica", "", 10)
-        pdf.set_text_color(230, 57, 70)  # red
+        pdf.set_text_color(230, 57, 70)
         for c in cons:
-            pdf.multi_cell(0, 6, _safe(f"-  {c}"))
+            pdf.multi_cell(0, 6, _safe(f"-  {_str(c)}"))
         pdf.ln(4)
 
     # ─── Build Plan ───
-    build_plan = result.get("build_plan", [])
+    build_plan = result.get("build_plan") or []
     if build_plan:
         _section_header(pdf, "Build Plan")
         pdf.set_font("Helvetica", "", 10)
         pdf.set_text_color(0, 0, 0)
         for i, step in enumerate(build_plan):
-            pdf.multi_cell(0, 6, _safe(f"{str(i+1).zfill(2)}.  {step}"))
+            pdf.multi_cell(0, 6, _safe(f"{str(i+1).zfill(2)}.  {_str(step)}"))
         pdf.ln(4)
 
     # ─── Notes ───
@@ -173,7 +185,7 @@ def generate_research_pdf(research: dict) -> bytes:
     pdf.ln(5)
     pdf.set_font("Helvetica", "I", 8)
     pdf.set_text_color(150, 150, 150)
-    pdf.cell(0, 5, "Generated by ShipOrSkip — shiporskip.com", new_x="LMARGIN", new_y="NEXT", align="C")
+    pdf.cell(0, 5, _safe("Generated by ShipOrSkip -- shiporskip.com"), new_x="LMARGIN", new_y="NEXT", align="C")
 
     return pdf.output()
 

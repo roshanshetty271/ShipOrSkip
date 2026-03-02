@@ -620,10 +620,10 @@ async def export_pdf(research_id: str, user: dict = Depends(require_auth)):
     try:
         pdf_bytes = generate_research_pdf(research)
         return Response(
-            content=pdf_bytes,
+            content=bytes(pdf_bytes),
             media_type="application/pdf",
             headers={"Content-Disposition": f'attachment; filename="shiporskip-{research_id[:8]}.pdf"'},
         )
-    except Exception:
+    except Exception as e:
         logger.exception("PDF generation failed")
-        raise HTTPException(status_code=500, detail="Could not generate PDF")
+        raise HTTPException(status_code=500, detail=f"Could not generate PDF: {e}")
