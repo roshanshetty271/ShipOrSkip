@@ -459,6 +459,27 @@ async def get_research_history(user: dict = Depends(get_current_user)):
         return {"research": []}
 
 
+class SaveResearchRequest(BaseModel):
+    idea: str = Field(..., max_length=500)
+    category: Optional[str] = None
+    analysis_type: str = Field(default="fast")
+    result: dict = Field(default_factory=dict)
+
+
+@router.post("/research/save")
+async def save_existing_research(
+    req: SaveResearchRequest,
+    user: dict = Depends(require_auth),
+):
+    """Save a pre-existing analysis result (e.g., retroactive save after anonymous session)."""
+    research_id = await _save_research(
+        user, req.idea, req.category, req.analysis_type, req.result, status="completed"
+    )
+    if not research_id:
+        raise HTTPException(status_code=500, detail="Could not save research")
+    return {"status": "saved", "id": research_id}
+
+
 @router.get("/research/{research_id}")
 async def get_research_detail(research_id: str, user: dict = Depends(get_current_user)):
     if not user:

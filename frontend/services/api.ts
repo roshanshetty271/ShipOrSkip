@@ -69,7 +69,7 @@ export async function analyzeDeepStream(
         if (event === "progress") onProgress(data.message);
         else if (event === "done") onDone(data);
         else if (event === "error") onError(data.message);
-      } catch {}
+      } catch { }
     }
   }
 }
@@ -84,6 +84,24 @@ export async function getResearchHistory() {
 export async function getResearchDetail(id: string) {
   const res = await fetch(`${API_URL}/api/research/${id}`, { headers: await authHeaders() });
   if (!res.ok) throw new Error("Research not found");
+  return res.json();
+}
+
+export async function saveResearchResult(
+  idea: string,
+  category: string | null,
+  analysisType: string,
+  result: Record<string, unknown>,
+) {
+  const res = await fetch(`${API_URL}/api/research/save`, {
+    method: "POST",
+    headers: await authHeaders(),
+    body: JSON.stringify({ idea, category, analysis_type: analysisType, result }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: "Save failed" }));
+    throw new Error(err.detail || `Server error: ${res.status}`);
+  }
   return res.json();
 }
 

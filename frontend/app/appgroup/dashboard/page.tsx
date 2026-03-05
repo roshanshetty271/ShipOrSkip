@@ -7,7 +7,6 @@ import {
   Zap,
   Search,
   ChevronRight,
-  RotateCcw,
   ExternalLink,
   Github,
   Globe,
@@ -16,7 +15,6 @@ import {
   FileText,
   StickyNote,
   X,
-  Trash2,
   Clock,
 } from "lucide-react";
 import Link from "next/link";
@@ -25,11 +23,12 @@ import {
   analyzeFast,
   analyzeDeepStream,
   getResearchHistory,
+  saveResearchResult,
 } from "@/services/api";
 import dynamic from "next/dynamic";
 import TextareaAutosize from 'react-textarea-autosize';
-import { supabase } from "@/lib/supabase";
-import { getAccessToken } from "@/lib/supabase";
+import { supabase, getAccessToken } from "@/lib/supabase";
+import HistoryPanel from "@/components/research/HistoryPanel";
 
 const Turnstile = dynamic(
   () => import("@marsidev/react-turnstile").then((m) => m.Turnstile),
@@ -342,13 +341,15 @@ function DashboardContent() {
     if (result) {
       sessionStorage.setItem("shiporskip_pending_result", JSON.stringify(result));
       sessionStorage.setItem("shiporskip_pending_idea", idea);
+      sessionStorage.setItem("shiporskip_pending_mode", mode);
     }
-  }, [result, idea]);
+  }, [result, idea, mode]);
 
   // Restore pending results on mount or clear if URL has a different idea
   useEffect(() => {
     const savedResult = sessionStorage.getItem("shiporskip_pending_result");
     const savedIdea = sessionStorage.getItem("shiporskip_pending_idea");
+    const savedMode = sessionStorage.getItem("shiporskip_pending_mode");
     const urlIdea = searchParams.get("idea");
 
     if (savedResult && savedIdea) {
@@ -356,12 +357,25 @@ function DashboardContent() {
         try {
           setResult(JSON.parse(savedResult));
           setIdea(savedIdea);
+          if (savedMode === "fast" || savedMode === "deep") setMode(savedMode);
+          // If user just signed in, auto-show all sources
+          if (user) setShowAllSources(true);
         } catch { }
       }
       sessionStorage.removeItem("shiporskip_pending_result");
       sessionStorage.removeItem("shiporskip_pending_idea");
+      sessionStorage.removeItem("shiporskip_pending_mode");
+
+      // Retroactively save anonymous result now that user is signed in
+      if (user && savedResult && savedIdea) {
+        try {
+          const parsed = JSON.parse(savedResult);
+          const analysisType = savedMode || "fast";
+          saveResearchResult(savedIdea, null, analysisType, parsed).then(() => loadHistory()).catch(() => { });
+        } catch { }
+      }
     }
-  }, [searchParams]);
+  }, [searchParams, user]);
 
   useEffect(() => {
     const newIdea = searchParams.get("idea");
@@ -653,79 +667,30 @@ function DashboardContent() {
       </header>
 
       <div className="flex min-h-[calc(100vh-64px)] max-w-7xl mx-auto w-full">
-        {/* Sidebar — Research History */}
+        {/* Sidebar — Research History (desktop) */}
         {showHistory && user && (
           <aside className="w-72 shrink-0 hidden lg:flex flex-col border-r border-border/50 bg-background-raised">
-            <div className="flex items-center justify-between p-5 border-b border-border/50">
-              <p className="text-[10px] font-mono text-text-secondary uppercase tracking-[0.2em] font-medium">
-                Past Research
-              </p>
-              <div className="flex items-center gap-1">
-                <button
-                  onClick={() => setShowDeleteModal(true)}
-                  className="text-text-tertiary hover:text-accent-green p-1.5 transition-colors rounded-full hover:bg-accent-green/10"
-                  title="Delete all"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
-                <button onClick={loadHistory} className="text-text-tertiary hover:text-accent-green p-1.5 transition-colors rounded-full hover:bg-accent-green/10" title="Refresh">
-                  <RotateCcw className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            </div>
-
-            <div className="flex-grow overflow-y-auto">
-              {historyLoading ? (
-                <div className="divide-y divide-border-strong">
-                  {[1, 2, 3].map((i) => (
-                    <div key={i} className="h-24 bg-background-raised animate-pulse" />
-                  ))}
-                </div>
-              ) : history.length === 0 ? (
-                <p className="text-xs font-mono p-4 text-text-tertiary">
-                  No research yet.
-                </p>
-              ) : (
-                <div className="divide-y divide-border/30 p-2">
-                  {history.map((item) => (
-                    <div key={item.id} className="relative group">
-                      <button
-                        onClick={() => router.push(`/appgroup/research/${item.id}`)}
-                        className="w-full text-left p-3 hover:bg-white rounded-md transition-all mb-1 block border border-transparent hover:border-border/50 hover:shadow-sm pr-8"
-                      >
-                        <p className="text-sm font-sans font-medium line-clamp-2 mb-2 leading-relaxed text-ink-900 group-hover:text-accent-green transition-colors">
-                          {item.idea_text}
-                        </p>
-                        <div className="flex items-center gap-2 text-[10px] font-mono text-text-tertiary uppercase tracking-widest">
-                          {item.analysis_type === "deep" ? <Search className="w-3 h-3 text-accent" /> : <Zap className="w-3 h-3 text-accent-green" />}
-                          <span>{item.analysis_type}</span>
-                          <span className="opacity-50">&middot;</span>
-                          <span>{new Date(item.created_at).toLocaleDateString()}</span>
-                        </div>
-                      </button>
-                      <button
-                        onClick={async (e) => {
-                          e.stopPropagation();
-                          try {
-                            const token = await getAccessToken();
-                            await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/research/${item.id}`, {
-                              method: "DELETE",
-                              headers: token ? { Authorization: `Bearer ${token}` } : {},
-                            });
-                            setHistory(prev => prev.filter(h => h.id !== item.id));
-                          } catch { }
-                        }}
-                        className="absolute right-2 top-2 opacity-0 group-hover:opacity-100 text-text-tertiary hover:text-accent transition-all p-1.5 rounded-full hover:bg-accent/10"
-                        title="Delete research"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+            <HistoryPanel
+              history={history}
+              historyLoading={historyLoading}
+              onRefresh={loadHistory}
+              onDeleteAll={() => setShowDeleteModal(true)}
+              onItemDeleted={(id) => setHistory(prev => prev.filter(h => h.id !== id))}
+            />
           </aside>
+        )}
+
+        {/* Mobile History Overlay */}
+        {showHistory && user && (
+          <HistoryPanel
+            mobile
+            history={history}
+            historyLoading={historyLoading}
+            onRefresh={loadHistory}
+            onDeleteAll={() => setShowDeleteModal(true)}
+            onItemDeleted={(id) => setHistory(prev => prev.filter(h => h.id !== id))}
+            onClose={() => setShowHistory(false)}
+          />
         )}
 
         {/* Main content */}
@@ -782,7 +747,7 @@ function DashboardContent() {
                         }`}
                     >
                       <Search className="w-3.5 h-3.5" /> Deep
-                      {!user && <Lock className="w-3 h-3 ml-0.5 opacity-50" />}
+                      {!user && <Lock className="w-3.5 h-3.5 ml-1 opacity-70" />}
                     </button>
                   </div>
 
@@ -989,7 +954,7 @@ function DashboardContent() {
                       </div>
                     )}
 
-                    {user && mode === "deep" && extraSources.length > 0 && (
+                    {user && extraSources.length > 0 && (
                       <div className="mt-8 border-t border-border/50 pt-8">
                         <div className="flex items-center gap-4 mb-6">
                           <h4 className="font-display text-2xl text-ink-900">Additional Market Intelligence</h4>
