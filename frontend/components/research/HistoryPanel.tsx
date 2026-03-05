@@ -8,6 +8,7 @@ import {
     Trash2,
     RotateCcw,
     X,
+    Clock,
 } from "lucide-react";
 import { getAccessToken } from "@/lib/supabase";
 
@@ -25,7 +26,7 @@ interface HistoryPanelProps {
     onRefresh: () => void;
     onDeleteAll: () => void;
     onItemDeleted: (id: string) => void;
-    /** When true, renders as a mobile overlay instead of sidebar content */
+    /** When true, renders as a mobile full-screen overlay */
     mobile?: boolean;
     onClose?: () => void;
 }
@@ -71,9 +72,13 @@ function HistoryList({
                         ))}
                     </div>
                 ) : history.length === 0 ? (
-                    <p className="text-xs font-mono p-4 text-text-tertiary">
-                        No research yet.
-                    </p>
+                    <div className="flex flex-col items-center justify-center py-16 px-6">
+                        <Clock className="w-8 h-8 text-border-strong mb-3" />
+                        <p className="text-sm font-medium text-ink-900 mb-1">No research yet</p>
+                        <p className="text-xs text-text-tertiary text-center">
+                            Your analysis history will appear here after you run a search.
+                        </p>
+                    </div>
                 ) : (
                     <div className="divide-y divide-border/30 p-2">
                         {history.map((item) => (
@@ -130,24 +135,22 @@ function HistoryList({
 const HistoryPanel = memo(function HistoryPanel(props: HistoryPanelProps) {
     const { mobile, onClose, ...listProps } = props;
 
-    // Mobile overlay
+    // Mobile: full-screen overlay
     if (mobile) {
         return (
-            <div className="fixed inset-0 z-50 lg:hidden">
-                <div
-                    className="absolute inset-0 bg-black/40 backdrop-blur-sm"
-                    onClick={onClose}
-                />
-                <div className="absolute bottom-0 left-0 right-0 bg-background-raised rounded-t-2xl max-h-[80vh] flex flex-col animate-slide-up shadow-2xl">
-                    <div className="flex items-center justify-between px-5 pt-4 pb-2">
-                        <p className="text-sm font-medium text-ink-900">Research History</p>
-                        <button
-                            onClick={onClose}
-                            className="text-text-tertiary hover:text-ink-900 p-1.5 rounded-full hover:bg-background transition-colors"
-                        >
-                            <X className="w-5 h-5" />
-                        </button>
-                    </div>
+            <div className="fixed inset-0 z-50 lg:hidden flex flex-col bg-background">
+                {/* Header */}
+                <div className="flex items-center justify-between px-5 py-4 border-b border-border/50 bg-white shrink-0">
+                    <h2 className="text-base font-medium text-ink-900">Research History</h2>
+                    <button
+                        onClick={onClose}
+                        className="text-text-tertiary hover:text-ink-900 p-2 rounded-full hover:bg-background-raised transition-colors -mr-1"
+                    >
+                        <X className="w-5 h-5" />
+                    </button>
+                </div>
+                {/* History list fills remaining space */}
+                <div className="flex-1 flex flex-col overflow-hidden">
                     <HistoryList {...listProps} />
                 </div>
             </div>

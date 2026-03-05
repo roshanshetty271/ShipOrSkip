@@ -345,37 +345,66 @@ function DashboardContent() {
     }
   }, [result, idea, mode]);
 
-  // Restore pending results on mount or clear if URL has a different idea
+  // Restore pending results on mount; retroactively save after auth loads
+  const hasSavedRetroactively = useRef(false);
+  const hasRestoredResult = useRef(false);
+
+  // Step 1: Restore result immediately on mount (before auth loads)
   useEffect(() => {
+    if (hasRestoredResult.current) return;
     const savedResult = sessionStorage.getItem("shiporskip_pending_result");
     const savedIdea = sessionStorage.getItem("shiporskip_pending_idea");
     const savedMode = sessionStorage.getItem("shiporskip_pending_mode");
-    const urlIdea = searchParams.get("idea");
 
     if (savedResult && savedIdea) {
-      if (!urlIdea || urlIdea === savedIdea) {
-        try {
-          setResult(JSON.parse(savedResult));
-          setIdea(savedIdea);
-          if (savedMode === "fast" || savedMode === "deep") setMode(savedMode);
-          // If user just signed in, auto-show all sources
-          if (user) setShowAllSources(true);
-        } catch { }
-      }
-      sessionStorage.removeItem("shiporskip_pending_result");
-      sessionStorage.removeItem("shiporskip_pending_idea");
-      sessionStorage.removeItem("shiporskip_pending_mode");
-
-      // Retroactively save anonymous result now that user is signed in
-      if (user && savedResult && savedIdea) {
-        try {
-          const parsed = JSON.parse(savedResult);
-          const analysisType = savedMode || "fast";
-          saveResearchResult(savedIdea, null, analysisType, parsed).then(() => loadHistory()).catch(() => { });
-        } catch { }
-      }
+      hasRestoredResult.current = true;
+      try {
+        setResult(JSON.parse(savedResult));
+        setIdea(savedIdea);
+        if (savedMode === "fast" || savedMode === "deep") setMode(savedMode as "fast" | "deep");
+        console.log("[ShipOrSkip] Restored pending result from sessionStorage");
+      } catch { }
     }
-  }, [searchParams, user]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Step 2: Once auth resolves, retroactively save and clean up
+  useEffect(() => {
+    if (authLoading) return; // Wait for auth
+    if (hasSavedRetroactively.current) return; // Already done
+
+    const savedResult = sessionStorage.getItem("shiporskip_pending_result");
+    const savedIdea = sessionStorage.getItem("shiporskip_pending_idea");
+    const savedMode = sessionStorage.getItem("shiporskip_pending_mode");
+
+    if (!savedResult || !savedIdea) return;
+
+    // Auth resolved — if user is signed in, save the pending result
+    if (user) {
+      hasSavedRetroactively.current = true;
+      console.log("[ShipOrSkip] Auth resolved, retroactively saving research...");
+      try {
+        const parsed = JSON.parse(savedResult);
+        const analysisType = savedMode || "fast";
+        saveResearchResult(savedIdea, null, analysisType, parsed)
+          .then(() => {
+            console.log("[ShipOrSkip] Research saved successfully, refreshing history");
+            loadHistory();
+            setShowAllSources(true);
+          })
+          .catch((err) => {
+            console.error("[ShipOrSkip] Failed to save research:", err);
+          });
+      } catch { }
+    } else {
+      console.log("[ShipOrSkip] Auth resolved but no user — skipping retroactive save");
+    }
+
+    // Clean up sessionStorage (auth is resolved, no need to keep)
+    sessionStorage.removeItem("shiporskip_pending_result");
+    sessionStorage.removeItem("shiporskip_pending_idea");
+    sessionStorage.removeItem("shiporskip_pending_mode");
+  }, [user, authLoading]);
 
   useEffect(() => {
     const newIdea = searchParams.get("idea");
