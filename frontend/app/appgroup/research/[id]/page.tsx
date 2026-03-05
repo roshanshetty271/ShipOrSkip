@@ -16,6 +16,8 @@ import {
   ExternalLink,
   AlertTriangle,
   X,
+  Globe,
+  ChevronRight,
 } from "lucide-react";
 import Link from "next/link";
 import ReactMarkdown from "react-markdown";
@@ -36,6 +38,38 @@ interface ChatMsg {
   role: string;
   content: string;
   created_at?: string;
+}
+
+interface RawSource {
+  title: string;
+  url: string;
+  snippet: string;
+  source_type: string;
+  score: number;
+}
+
+const SOURCE_COLORS: Record<string, string> = {
+  github: "bg-gray-800 text-white",
+  producthunt: "bg-orange-500 text-white",
+  reddit: "bg-orange-600 text-white",
+  hackernews: "bg-orange-400 text-white",
+  web: "bg-ink-100 text-ink-500",
+};
+
+const SOURCE_LABELS: Record<string, string> = {
+  github: "GitHub",
+  producthunt: "Product Hunt",
+  reddit: "Reddit",
+  hackernews: "Hacker News",
+  web: "Web",
+};
+
+function SourceBadge({ type }: { type: string }) {
+  return (
+    <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${SOURCE_COLORS[type] || SOURCE_COLORS.web}`}>
+      {SOURCE_LABELS[type] || "Web"}
+    </span>
+  );
 }
 
 export default function ResearchDetailPage() {
@@ -69,6 +103,7 @@ export default function ResearchDetailPage() {
   // Header height tracking for sticky tabs
   const headerRef = useRef<HTMLElement>(null);
   const [headerH, setHeaderH] = useState(56);
+  const [showAllSources, setShowAllSources] = useState(false);
 
   useEffect(() => {
     if (!headerRef.current) return;
@@ -255,6 +290,16 @@ export default function ResearchDetailPage() {
   const cons = (result.cons || []) as string[];
   const buildPlan = (result.build_plan || []) as string[];
   const verdict = result.verdict || "";
+  const rawSources = (result.raw_sources || []) as RawSource[];
+
+  const extraSources = (() => {
+    const names = new Set(competitors.map(c => c.name?.toLowerCase().trim()));
+    const urls = new Set(competitors.map(c => c.url?.toLowerCase().replace(/\/$/, "") || ""));
+    return rawSources.filter((s: RawSource) =>
+      !urls.has(s.url.toLowerCase().replace(/\/$/, "")) &&
+      !names.has(s.title?.toLowerCase().trim())
+    );
+  })();
 
   return (
     <div className="min-h-screen bg-background text-ink-900 font-sans overflow-x-hidden">
@@ -318,11 +363,10 @@ export default function ResearchDetailPage() {
             <button
               key={key}
               onClick={() => setTab(key)}
-              className={`py-3 text-[10px] sm:text-[11px] font-mono tracking-[0.15em] uppercase transition-none border-r border-border-strong last:border-r-0 ${
-                tab === key
+              className={`py-3 text-[10px] sm:text-[11px] font-mono tracking-[0.15em] uppercase transition-none border-r border-border-strong last:border-r-0 ${tab === key
                   ? "bg-ink-900 text-white"
                   : "bg-transparent text-ink-900 hover:bg-background-raised"
-              }`}
+                }`}
             >
               <span className="opacity-40 mr-1">{num}</span> {label}
             </button>
@@ -360,13 +404,12 @@ export default function ResearchDetailPage() {
                             <div className="flex items-center gap-3 flex-wrap mb-2">
                               <h3 className="font-serif text-xl sm:text-2xl leading-tight">{c.name}</h3>
                               {c.threat_level && (
-                                <span className={`px-2 py-0.5 text-[9px] uppercase font-mono tracking-[0.15em] font-medium whitespace-nowrap ${
-                                  c.threat_level === "high"
+                                <span className={`px-2 py-0.5 text-[9px] uppercase font-mono tracking-[0.15em] font-medium whitespace-nowrap ${c.threat_level === "high"
                                     ? "bg-accent text-white"
                                     : c.threat_level === "medium"
                                       ? "bg-yellow-400 text-ink-900"
                                       : "bg-accent-green text-white"
-                                }`}>
+                                  }`}>
                                   {c.threat_level} threat
                                 </span>
                               )}
@@ -476,6 +519,55 @@ export default function ResearchDetailPage() {
                         </li>
                       ))}
                     </ol>
+                  </div>
+                </div>
+              </section>
+            )}
+
+            {/* Additional Sources */}
+            {user && extraSources.length > 0 && (
+              <section className="brutal-border-b bg-background">
+                <div className="grid md:grid-cols-12">
+                  <div className="md:col-span-3 px-6 sm:px-10 py-6 sm:py-8 border-b md:border-b-0 md:border-r border-border-strong bg-white">
+                    <p className="text-[10px] font-mono text-text-tertiary uppercase tracking-[0.2em]">Raw Sources</p>
+                    <p className="text-[10px] font-mono text-text-tertiary mt-1">{extraSources.length} scanned</p>
+                  </div>
+                  <div className="md:col-span-9 px-6 sm:px-10 py-8">
+                    <div className="grid grid-cols-1 gap-4 max-w-4xl">
+                      {extraSources.slice(0, showAllSources ? extraSources.length : 5).map((s, i) => (
+                        <a
+                          key={i}
+                          href={s.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="bg-white rounded-xl p-5 border border-border/50 hover:border-ink-900/30 hover:shadow-md transition-all duration-300 group block"
+                        >
+                          <div className="flex items-start justify-between gap-4">
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-3 mb-2">
+                                <SourceBadge type={s.source_type} />
+                                <h5 className="font-serif text-lg text-ink-900 truncate group-hover:text-accent-green transition-colors">
+                                  {s.title}
+                                </h5>
+                              </div>
+                              <p className="text-sm font-sans text-text-secondary line-clamp-2 leading-relaxed">
+                                {s.snippet}
+                              </p>
+                            </div>
+                            <ExternalLink className="w-4 h-4 text-border-strong group-hover:text-accent-green shrink-0 transition-colors" />
+                          </div>
+                        </a>
+                      ))}
+                    </div>
+                    {extraSources.length > 5 && (
+                      <button
+                        onClick={() => setShowAllSources(!showAllSources)}
+                        className="w-full max-w-4xl py-4 text-sm font-medium text-text-secondary hover:text-ink-900 bg-white hover:bg-background-raised rounded-xl border border-border/50 transition-all group flex items-center justify-center gap-2 mt-4"
+                      >
+                        {showAllSources ? "Collapse Sources" : `View ${extraSources.length - 5} More Sources`}
+                        <ChevronRight className={`w-4 h-4 transition-transform ${showAllSources ? '-rotate-90' : 'rotate-90 group-hover:translate-y-0.5'}`} />
+                      </button>
+                    )}
                   </div>
                 </div>
               </section>

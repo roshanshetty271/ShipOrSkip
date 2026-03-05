@@ -669,12 +669,22 @@ function DashboardContent() {
           </Link>
           <div className="flex items-center gap-4 sm:gap-6 font-mono text-[10px] sm:text-xs uppercase tracking-widest">
             {user && (
-              <button
-                onClick={() => setShowHistory(!showHistory)}
-                className={`transition-colors px-3 py-1.5 rounded-full border ${showHistory ? "bg-accent-green/10 text-accent-green border-accent-green/20 font-bold" : "text-text-secondary border-transparent hover:text-ink-900 hover:bg-background-raised"}`}
-              >
-                History
-              </button>
+              <>
+                {/* Desktop: Toggle Sidebar */}
+                <button
+                  onClick={() => setShowHistory(!showHistory)}
+                  className={`hidden lg:block transition-colors px-3 py-1.5 rounded-full border ${showHistory ? "bg-accent-green/10 text-accent-green border-accent-green/20 font-bold" : "text-text-secondary border-transparent hover:text-ink-900 hover:bg-background-raised"}`}
+                >
+                  History
+                </button>
+                {/* Mobile: Link to Page */}
+                <Link
+                  href="/appgroup/history"
+                  className="lg:hidden transition-colors px-3 py-1.5 rounded-full text-text-secondary hover:text-ink-900 hover:bg-background-raised"
+                >
+                  History
+                </Link>
+              </>
             )}
             {user ? (
               <div className="flex items-center gap-4">
@@ -707,19 +717,6 @@ function DashboardContent() {
               onItemDeleted={(id) => setHistory(prev => prev.filter(h => h.id !== id))}
             />
           </aside>
-        )}
-
-        {/* Mobile History Overlay */}
-        {showHistory && user && (
-          <HistoryPanel
-            mobile
-            history={history}
-            historyLoading={historyLoading}
-            onRefresh={loadHistory}
-            onDeleteAll={() => setShowDeleteModal(true)}
-            onItemDeleted={(id) => setHistory(prev => prev.filter(h => h.id !== id))}
-            onClose={() => setShowHistory(false)}
-          />
         )}
 
         {/* Main content */}
