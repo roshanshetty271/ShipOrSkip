@@ -13,6 +13,18 @@ async function authHeaders(): Promise<Record<string, string>> {
 // Phase 1 — Analysis
 // ═══════════════════════════════════════
 
+function getErrorMessage(err: any, status: number, defaultMsg: string): string {
+  if (err?.detail) {
+    if (typeof err.detail === "string") return err.detail;
+    if (typeof err.detail === "object" && err.detail.message) return err.detail.message;
+    if (Array.isArray(err.detail)) return err.detail.map((e: any) => e.msg).join(", ");
+    try { return JSON.stringify(err.detail); } catch { return defaultMsg; }
+  }
+  if (err?.error) return err.error;
+  if (err?.message) return err.message;
+  return defaultMsg || `Server error: ${status}`;
+}
+
 export async function analyzeFast(idea: string, category?: string, turnstileToken?: string) {
   const res = await fetch(`${API_URL}/api/analyze/fast`, {
     method: "POST",
@@ -21,7 +33,7 @@ export async function analyzeFast(idea: string, category?: string, turnstileToke
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: "Analysis failed" }));
-    throw new Error(err.detail || `Server error: ${res.status}`);
+    throw new Error(getErrorMessage(err, res.status, "Analysis failed"));
   }
   return res.json();
 }
@@ -42,7 +54,7 @@ export async function analyzeDeepStream(
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: "Research failed" }));
-    onError(err.detail || `Server error: ${res.status}`);
+    onError(getErrorMessage(err, res.status, "Research failed"));
     return;
   }
   if (!res.body) { onError("No response body"); return; }
@@ -100,7 +112,7 @@ export async function saveResearchResult(
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: "Save failed" }));
-    throw new Error(err.detail || `Server error: ${res.status}`);
+    throw new Error(getErrorMessage(err, res.status, "Save failed"));
   }
   return res.json();
 }
@@ -117,7 +129,7 @@ export async function sendChatMessage(researchId: string, message: string) {
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: "Chat failed" }));
-    throw new Error(err.detail || `Server error: ${res.status}`);
+    throw new Error(getErrorMessage(err, res.status, "Chat failed"));
   }
   return res.json();
 }
@@ -166,7 +178,7 @@ export async function downloadPdf(researchId: string) {
   const res = await fetch(`${API_URL}/api/research/${researchId}/export/pdf`, { headers });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: "PDF export failed" }));
-    throw new Error(err.detail || `Server error: ${res.status}`);
+    throw new Error(getErrorMessage(err, res.status, "PDF export failed"));
   }
 
   const blob = await res.blob();
