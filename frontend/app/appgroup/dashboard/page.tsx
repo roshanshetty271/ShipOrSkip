@@ -858,11 +858,23 @@ function DashboardContent() {
 
             {/* Premium Error state */}
             {error && !loading && (
-              <div className="bg-red-50 border border-red-200 rounded-2xl px-6 py-8 text-center mt-12 shadow-sm">
-                <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4 border border-red-200">
-                  <X className="w-6 h-6 text-accent" />
+              <div className={error.includes("used all") || error.includes("Sign in") || error.includes("limit")
+                ? "bg-amber-50 border border-amber-200 rounded-2xl px-6 py-8 text-center mt-12 shadow-sm"
+                : "bg-red-50 border border-red-200 rounded-2xl px-6 py-8 text-center mt-12 shadow-sm"
+              }>
+                <div className={error.includes("used all") || error.includes("Sign in") || error.includes("limit")
+                  ? "w-12 h-12 bg-amber-100 rounded-full flex items-center justify-center mx-auto mb-4 border border-amber-200"
+                  : "w-12 h-12 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4 border border-red-200"
+                }>
+                  {error.includes("used all") || error.includes("Sign in") || error.includes("limit") ? (
+                    <Lock className="w-6 h-6 text-amber-600" />
+                  ) : (
+                    <X className="w-6 h-6 text-accent" />
+                  )}
                 </div>
-                <p className="text-sm font-mono text-accent uppercase tracking-widest font-bold mb-2">Error</p>
+                <p className={`text-sm font-mono uppercase tracking-widest font-bold mb-2 ${error.includes("used all") || error.includes("Sign in") || error.includes("limit") ? "text-amber-600" : "text-accent"}`}>
+                  {error.includes("used all") || error.includes("limit") ? "Usage Limit Reached" : error.includes("Sign in") ? "Sign In Required" : "Error"}
+                </p>
                 <p className="font-sans text-ink-900">{error}</p>
                 {!user && error.includes("Sign in") && (
                   <div className="mt-6">
