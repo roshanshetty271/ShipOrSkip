@@ -746,6 +746,17 @@ function DashboardContent() {
                   />
                 </div>
 
+                <div
+                  className={`transition-all duration-500 overflow-hidden flex justify-end ${(verified || user) ? "opacity-0 max-h-0 mb-0 pointer-events-none" : "opacity-100 max-h-[100px] mb-4"
+                    }`}
+                >
+                  <Turnstile
+                    ref={turnstileRef}
+                    siteKey={process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY || ""}
+                    onSuccess={handleTurnstileSuccess}
+                  />
+                </div>
+
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-6">
                   <div className="flex gap-3">
                     <button
@@ -812,16 +823,6 @@ function DashboardContent() {
                       );
                     })()}
 
-                    <div
-                      className={`transition-all duration-500 overflow-hidden ${(verified || user) ? "opacity-0 max-w-0 max-h-0" : "opacity-100 max-w-[300px]"
-                        }`}
-                    >
-                      <Turnstile
-                        ref={turnstileRef}
-                        siteKey={process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY || ""}
-                        onSuccess={handleTurnstileSuccess}
-                      />
-                    </div>
 
                     <SubmitButton
                       loading={loading}
