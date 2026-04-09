@@ -235,7 +235,7 @@ const SignInModal = memo(function SignInModal({
 
         <div className="space-y-4 mb-8">
           {[
-            "10 fast + 3 deep analyses daily",
+            "10 fast + 3 deep analysis runs daily",
             "Chat with AI about your results",
             "Export complete research to PDF",
             "See all discovered source links",

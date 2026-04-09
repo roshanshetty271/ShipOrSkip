@@ -108,7 +108,7 @@ def _parse_ts(iso_str: str) -> datetime:
 
 
 def _get_rolling_usage(user_id: str, analysis_type: str, limit: int) -> dict:
-    """Count analyses in the last 24h rolling window.
+    """Count analysis runs in the last 24h rolling window.
     Returns {used, remaining, next_available_at}."""
     sb = get_supabase_client()
     if not sb:
@@ -225,7 +225,7 @@ def _check_anon_limit(request: Request, analysis_type: str):
 
     if usage["fast"] >= ANON_FAST_LIMIT:
         raise HTTPException(status_code=429, detail={
-            "message": f"You've used all {ANON_FAST_LIMIT} free analyses. Sign in to get more.",
+            "message": f"You've used all {ANON_FAST_LIMIT} free analysis runs. Sign in to get more.",
             "sign_in_required": True, **remaining,
         })
 
@@ -242,7 +242,7 @@ async def _check_signed_in_fast_limit(user: dict):
         return
     if remaining["remaining_fast"] <= 0:
         raise HTTPException(status_code=429, detail={
-            "message": f"You've used all {FREE_FAST_DAILY} fast analyses in the last 24 hours.",
+            "message": f"You've used all {FREE_FAST_DAILY} fast analysis runs in the last 24 hours.",
             "next_available_at": remaining.get("next_fast_available_at"),
             **remaining,
         })
