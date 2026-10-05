@@ -99,10 +99,15 @@ TITLE_BLOCKLIST_PATTERNS = [
 ]
 
 
+def _domain_matches(domain: str, listed: str) -> bool:
+    """True when domain is the listed domain or one of its subdomains."""
+    return domain == listed or domain.endswith("." + listed)
+
+
 def is_blocked(url: str) -> bool:
     try:
         domain = url.split("//")[-1].split("/")[0].lower().replace("www.", "")
-        return any(domain.endswith(blocked) for blocked in DOMAIN_BLOCKLIST)
+        return any(_domain_matches(domain, blocked) for blocked in DOMAIN_BLOCKLIST)
     except Exception:
         return False
 
@@ -126,7 +131,7 @@ def url_score(url: str) -> int:
     if "producthunt.com" in domain and ("/posts/" in url or "/products/" in url):
         return 95
     for hv in HIGH_VALUE_DOMAINS:
-        if domain.endswith(hv):
+        if _domain_matches(domain, hv):
             return 80
     if url.count("/") <= 3:
         return 60
