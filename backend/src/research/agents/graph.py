@@ -8,7 +8,6 @@ Changes:
 - 7 nodes: planner → [tavily, github, PH] → dedup → deep_fetch → strategize
 """
 
-import json
 import re
 import asyncio
 import time
@@ -187,7 +186,7 @@ async def tavily_search_node(state: ResearchState, settings: Settings, **_) -> d
 
 
 async def github_search_node(state: ResearchState, settings: Settings, **_) -> dict:
-    _log(f"  [GitHubSearch] Starting...")
+    _log("  [GitHubSearch] Starting...")
     idea = state.get("cleaned_idea", state["idea"])
     results = []
     if settings.github_token:
@@ -203,7 +202,7 @@ async def github_search_node(state: ResearchState, settings: Settings, **_) -> d
         except Exception as e:
             _log(f"  [GitHubSearch] API failed: {e}")
     if len(results) < 3 and settings.tavily_api_key:
-        _log(f"  [GitHubSearch] Tavily fallback...")
+        _log("  [GitHubSearch] Tavily fallback...")
         try:
             tavily_gh = await _tavily_search(f"{idea} site:github.com", settings.tavily_api_key, depth="basic", max_results=5)
             for r in tavily_gh:
@@ -217,7 +216,7 @@ async def github_search_node(state: ResearchState, settings: Settings, **_) -> d
 
 
 async def producthunt_search_node(state: ResearchState, settings: Settings, **_) -> dict:
-    _log(f"  [ProductHunt] Searching...")
+    _log("  [ProductHunt] Searching...")
     if not settings.tavily_api_key:
         return {"producthunt_results": [], "progress_events": []}
     idea = state.get("cleaned_idea", state["idea"])
@@ -228,7 +227,8 @@ async def producthunt_search_node(state: ResearchState, settings: Settings, **_)
     raw = await asyncio.gather(*tasks, return_exceptions=True)
     results, seen = [], set()
     for batch in raw:
-        if isinstance(batch, Exception): continue
+        if isinstance(batch, Exception):
+            continue
         for r in batch:
             url = r.get("url", "")
             if "producthunt.com" in url and url not in seen:
@@ -245,14 +245,18 @@ async def producthunt_search_node(state: ResearchState, settings: Settings, **_)
 # ═══════════════════════════════════════
 
 async def deduplicator_node(state: ResearchState, **_) -> dict:
-    _log(f"  [Deduplicator] Processing...")
+    _log("  [Deduplicator] Processing...")
     tavily = state.get("tavily_results", [])
     cleaned = state.get("cleaned_idea", "")
     seen, unique, blocked_count = set(), [], 0
     for r in tavily:
         url = r.get("url", "").lower().rstrip("/")
-        if is_blocked(r.get("url", "")): blocked_count += 1; continue
-        if url and url not in seen: seen.add(url); unique.append(r)
+        if is_blocked(r.get("url", "")):
+            blocked_count += 1
+            continue
+        if url and url not in seen:
+            seen.add(url)
+            unique.append(r)
     unique.sort(key=lambda r: -url_score(r.get("url", "")))
     _log(f"    {len(tavily)} raw → {len(unique)} unique ({blocked_count} blocked)")
 
@@ -274,24 +278,28 @@ async def deduplicator_node(state: ResearchState, **_) -> dict:
 # ═══════════════════════════════════════
 
 async def deep_fetcher_node(state: ResearchState, settings: Settings, **_) -> dict:
-    _log(f"  [DeepFetcher] Fetching READMEs + backfill pages...")
+    _log("  [DeepFetcher] Fetching READMEs + backfill pages...")
     tavily = state.get("filtered_results", [])
     github = state.get("github_results", [])
     all_urls = [r.get("url", "") for r in tavily]
     for g in github:
         match = re.search(r'\(https://github\.com/[^)]+\)', g)
-        if match: all_urls.append(match.group(0).strip("()"))
+        if match:
+            all_urls.append(match.group(0).strip("()"))
 
     readmes = await fetch_github_readmes(all_urls, max_repos=8)
     needs_fetch, has_raw = [], 0
     for r in tavily:
         url, raw = r.get("url", ""), r.get("raw_content", "") or ""
-        if len(raw) > 200: has_raw += 1
-        elif url and not is_blocked(url) and not is_title_blocked(r.get("title", "")) and "github.com" not in url: needs_fetch.append(url)
+        if len(raw) > 200:
+            has_raw += 1
+        elif url and not is_blocked(url) and not is_title_blocked(r.get("title", "")) and "github.com" not in url:
+            needs_fetch.append(url)
 
     _log(f"    {has_raw}/{len(tavily)} have raw content, {len(needs_fetch)} need fetch")
     deep_pages = {}
-    if needs_fetch: deep_pages = await deep_fetch_pages(needs_fetch, max_pages=10, race_target=5)
+    if needs_fetch:
+        deep_pages = await deep_fetch_pages(needs_fetch, max_pages=10, race_target=5)
 
     for r in tavily:
         url, raw = r.get("url", ""), r.get("raw_content", "") or ""
@@ -421,8 +429,10 @@ async def strategist_node(state: ResearchState, settings: Settings, client: Asyn
         _log(f"  [Strategist] Tokens: {u.prompt_tokens}+{u.completion_tokens}={u.total_tokens}")
 
     msg = completion.choices[0].message
-    if msg.refusal: return {"analysis": {"error": "Content restrictions."}, "progress_events": [("progress", {"message": "Blocked", "pct": 95})]}
-    if msg.parsed is None: return {"analysis": {"error": "Could not analyze."}, "progress_events": [("progress", {"message": "Empty", "pct": 95})]}
+    if msg.refusal:
+        return {"analysis": {"error": "Content restrictions."}, "progress_events": [("progress", {"message": "Blocked", "pct": 95})]}
+    if msg.parsed is None:
+        return {"analysis": {"error": "Could not analyze."}, "progress_events": [("progress", {"message": "Empty", "pct": 95})]}
 
     result = msg.parsed.model_dump()
     competitors = result.get("competitors", [])
@@ -465,7 +475,7 @@ def build_research_graph(settings: Settings, client: AsyncOpenAI) -> StateGraph:
 
 
 async def run_deep_research(idea: str, category: str | None, settings: Settings):
-    _log(f"  [Pipeline] Building 7-node pipeline (all mini)...")
+    _log("  [Pipeline] Building 7-node pipeline (all mini)...")
     client = AsyncOpenAI(api_key=settings.openai_api_key, timeout=60.0)
     compiled = build_research_graph(settings, client)
 

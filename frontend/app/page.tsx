@@ -206,7 +206,7 @@ export default function Home() {
                     Stop building in the dark.
                   </p>
                   <p className="mt-2 text-text-secondary leading-relaxed normal-case tracking-normal font-sans text-base">
-                    AI-powered validation for your next big idea. We analyze the market, find your true competitors, and tell you if it's worth your time—before you write a single line of code.
+                    AI-powered validation for your next big idea. We analyze the market, find your true competitors, and tell you if it&apos;s worth your time—before you write a single line of code.
                   </p>
                   <ul className="mt-8 space-y-4 text-xs font-bold text-ink-900">
                     <li className="flex items-center gap-3"><Zap className="w-4 h-4 text-accent-green" /> Deep competitor research</li>

@@ -23,7 +23,7 @@ from openai import AsyncOpenAI, RateLimitError, APITimeoutError, APIError
 from src.config import Settings
 from src.research.schemas import AnalysisResult
 from src.research.fetcher import (
-    assemble_fast_context, is_blocked, url_score, build_raw_sources,
+    assemble_fast_context, is_blocked, build_raw_sources,
     filter_grounded_competitors,
 )
 from src.research.agents.graph import run_deep_research
@@ -91,7 +91,7 @@ async def _clean_idea(idea: str, client: AsyncOpenAI) -> str:
 
 async def fast_analysis(idea: str, category: str | None, settings: Settings) -> dict:
     start = time.time()
-    _log(f"═══ FAST ANALYSIS START ═══")
+    _log("═══ FAST ANALYSIS START ═══")
     _log(f"  Idea: {idea[:100]}")
     _log(f"  Model: {MINI}")
 
@@ -179,7 +179,7 @@ async def fast_analysis(idea: str, category: str | None, settings: Settings) -> 
         _log(f"  [OpenAI] REFUSED: {msg.refusal}")
         raise AnalysisError("Could not analyze. Try rephrasing.", 422)
     if msg.parsed is None:
-        _log(f"  [OpenAI] Parsed=None")
+        _log("  [OpenAI] Parsed=None")
         raise AnalysisError("Could not analyze. Try rephrasing.", 422)
 
     result = msg.parsed.model_dump()
@@ -206,7 +206,7 @@ def _grounded(competitors: list[dict], context: str, raw_sources: list[dict]) ->
 async def deep_research_stream(
     idea: str, category: str | None, settings: Settings
 ) -> AsyncGenerator[tuple[str, dict], None]:
-    _log(f"═══ DEEP RESEARCH START ═══")
+    _log("═══ DEEP RESEARCH START ═══")
     _log(f"  Idea: {idea[:100]}")
     start = time.time()
     async for event in run_deep_research(idea, category, settings):

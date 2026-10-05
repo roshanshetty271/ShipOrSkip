@@ -1,7 +1,6 @@
 from fastapi import APIRouter, Depends
-from src.auth.dependencies import get_current_user, require_auth
-from src.auth.schemas import UserProfile
-from src.config import get_settings, get_supabase_client, Settings
+from src.auth.dependencies import get_current_user
+from src.config import get_supabase_client
 from typing import Optional
 
 router = APIRouter()

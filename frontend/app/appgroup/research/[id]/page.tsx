@@ -323,7 +323,7 @@ export default function ResearchDetailPage() {
                   ? <Search className="w-3 h-3 shrink-0" />
                   : <Zap className="w-3 h-3 shrink-0" />}
                 <span>{research.analysis_type}</span>
-                <span className="text-border-strong">//</span>
+                <span className="text-border-strong">{"//"}</span>
                 <span>{new Date(research.created_at).toLocaleDateString()}</span>
               </div>
             </div>

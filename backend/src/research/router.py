@@ -536,7 +536,7 @@ async def delete_all_research(user: dict = Depends(require_auth)):
     try:
         sb.table("research").delete().eq("user_id", user["id"]).execute()
         return {"status": "success", "message": "All research deleted"}
-    except Exception as e:
+    except Exception:
         logger.exception("Could not delete all research")
         raise HTTPException(status_code=500, detail="Could not delete research history")
 
@@ -550,7 +550,7 @@ async def delete_research(research_id: str, user: dict = Depends(require_auth)):
     try:
         sb.table("research").delete().eq("id", research_id).eq("user_id", user["id"]).execute()
         return {"status": "success", "message": "Research deleted"}
-    except Exception as e:
+    except Exception:
         logger.exception(f"Could not delete research {research_id}")
         raise HTTPException(status_code=500, detail="Could not delete research")
 

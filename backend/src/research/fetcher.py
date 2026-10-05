@@ -11,7 +11,6 @@ ShipOrSkip Fetcher Service
 
 import asyncio
 import re
-from typing import Optional
 from urllib.parse import urlparse
 
 import httpx
@@ -296,7 +295,8 @@ async def deep_fetch_pages(
             _log(f"    ✓ [{completed}/{race_target}] {url[:60]} ({len(content)} chars)")
             if completed >= race_target:
                 for t in tasks:
-                    if not t.done(): t.cancel()
+                    if not t.done():
+                        t.cancel()
                 _log(f"    Reached {race_target} — cancelled remaining tasks")
                 break
         else:
@@ -458,7 +458,8 @@ def assemble_fast_context(tavily_results: list[dict], max_chars: int = 6000) -> 
         snippet = r.get("content", "") or ""
         content = raw[:500] if len(raw) > 100 else snippet[:300]
         line = f"- {title} ({url})\n  {content}"
-        if chars_used + len(line) > max_chars: break
+        if chars_used + len(line) > max_chars:
+            break
         lines.append(line)
         chars_used += len(line)
 
