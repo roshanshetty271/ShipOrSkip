@@ -294,8 +294,15 @@ async def _save_research(user: Optional[dict], idea: str, category: Optional[str
         }).execute()
         return record.data[0]["id"] if record.data else None
     except Exception as e:
+        if status == "processing" and _is_unique_violation(e):
+            # Migration 004 allows one processing row per user.
+            raise HTTPException(status_code=409, detail="You already have a deep research in progress.")
         logger.warning(f"Could not save research: {e}")
         return None
+
+
+def _is_unique_violation(e: Exception) -> bool:
+    return getattr(e, "code", None) == "23505" or "duplicate key value" in str(e)
 
 
 async def _update_research_status(research_id: Optional[str], status: str, result: Optional[dict] = None):

@@ -83,3 +83,39 @@ def test_deep_stream_saves_completed_run(api, monkeypatch):
     assert "event: done" in resp.text
     assert [r["status"] for r in api.db.tables["research"]] == ["completed"]
     assert api.db.tables.get("anon_usage", []) == []
+
+
+def test_second_processing_row_returns_409(api, monkeypatch):
+    from postgrest.exceptions import APIError
+
+    api.state.user = USER
+    started = []
+
+    async def fake_stream(*_a, **_k):
+        started.append(True)
+        yield ("done", {"report": _ok_result()})
+    monkeypatch.setattr(api.router, "deep_research_stream", fake_stream)
+    api.db.errors[("research", "insert")] = APIError({
+        "code": "23505", "details": None, "hint": None,
+        "message": 'duplicate key value violates unique constraint "idx_research_one_processing_per_user"',
+    })
+
+    resp = api.client.post("/api/analyze/deep", json=IDEA)
+
+    assert resp.status_code == 409
+    assert resp.json()["detail"] == "You already have a deep research in progress."
+    assert started == []
+
+
+def test_other_insert_errors_keep_the_stream_running(api, monkeypatch):
+    api.state.user = USER
+
+    async def fake_stream(*_a, **_k):
+        yield ("done", {"report": _ok_result()})
+    monkeypatch.setattr(api.router, "deep_research_stream", fake_stream)
+    api.db.errors[("research", "insert")] = RuntimeError("connection reset")
+
+    resp = api.client.post("/api/analyze/deep", json=IDEA)
+
+    assert resp.status_code == 200
+    assert "event: done" in resp.text
