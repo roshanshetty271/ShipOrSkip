@@ -369,6 +369,9 @@ def assemble_deep_context(
             break
         gh_section.append(ph)
         chars_used += len(ph)
+        ph_url = re.search(r"\((https?://[^)]+)\)\s*$", ph)
+        if ph_url:
+            used_urls.add(ph_url.group(1).lower().rstrip("/"))
 
     if gh_section:
         sections.append("## GitHub Repos & Product Hunt Launches\n" + "\n".join(gh_section))
@@ -398,7 +401,7 @@ def assemble_deep_context(
         url = r.get("url", "")
         if url.lower().rstrip("/") in used_urls:
             continue
-        if is_title_blocked(title):
+        if is_blocked(url) or is_title_blocked(title):
             continue
         content = (r.get("content", "") or "")[:300]
         line = f"- {title} ({url}): {content}"

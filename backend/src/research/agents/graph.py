@@ -23,7 +23,7 @@ from src.config import Settings
 from src.research.schemas import AnalysisResult
 from src.research.fetcher import (
     fetch_github_readmes, deep_fetch_pages, assemble_deep_context,
-    is_blocked, url_score, build_raw_sources,
+    is_blocked, is_title_blocked, url_score, build_raw_sources,
 )
 
 MINI = "gpt-4.1-mini-2025-04-14"
@@ -39,6 +39,9 @@ class ResearchState(TypedDict):
     category: str
     search_queries: list[str]
     tavily_results: Annotated[list[dict], add]
+    # Deduplicated, blocklist-filtered results. No reducer, so the
+    # deduplicator replaces it instead of appending to the raw list.
+    filtered_results: list[dict]
     github_results: Annotated[list[str], add]
     github_readmes: dict
     producthunt_results: Annotated[list[str], add]
@@ -261,7 +264,7 @@ async def deduplicator_node(state: ResearchState, **_) -> dict:
     )
     _log(f"    {len(raw_sources)} filtered sources for frontend")
 
-    return {"tavily_results": unique, "raw_sources": raw_sources,
+    return {"filtered_results": unique, "raw_sources": raw_sources,
             "progress_events": [("progress", {"message": f"Filtered to {len(unique)} quality results", "pct": 40})]}
 
 
@@ -271,7 +274,7 @@ async def deduplicator_node(state: ResearchState, **_) -> dict:
 
 async def deep_fetcher_node(state: ResearchState, settings: Settings, **_) -> dict:
     _log(f"  [DeepFetcher] Fetching READMEs + backfill pages...")
-    tavily = state.get("tavily_results", [])
+    tavily = state.get("filtered_results", [])
     github = state.get("github_results", [])
     all_urls = [r.get("url", "") for r in tavily]
     for g in github:
@@ -283,7 +286,7 @@ async def deep_fetcher_node(state: ResearchState, settings: Settings, **_) -> di
     for r in tavily:
         url, raw = r.get("url", ""), r.get("raw_content", "") or ""
         if len(raw) > 200: has_raw += 1
-        elif url and not is_blocked(url) and "github.com" not in url: needs_fetch.append(url)
+        elif url and not is_blocked(url) and not is_title_blocked(r.get("title", "")) and "github.com" not in url: needs_fetch.append(url)
 
     _log(f"    {has_raw}/{len(tavily)} have raw content, {len(needs_fetch)} need fetch")
     deep_pages = {}
@@ -291,7 +294,8 @@ async def deep_fetcher_node(state: ResearchState, settings: Settings, **_) -> di
 
     for r in tavily:
         url, raw = r.get("url", ""), r.get("raw_content", "") or ""
-        if len(raw) > 200 and url not in deep_pages and "github.com" not in url:
+        if (len(raw) > 200 and url not in deep_pages and "github.com" not in url
+                and not is_blocked(url) and not is_title_blocked(r.get("title", ""))):
             deep_pages[url] = raw[:3000]
 
     _log(f"  [DeepFetcher] {len(readmes)} READMEs, {len(deep_pages)} pages")
@@ -309,7 +313,7 @@ async def strategist_node(state: ResearchState, settings: Settings, client: Asyn
     cleaned = state.get("cleaned_idea", idea)
     category = state.get("category", "Not specified")
 
-    tavily = state.get("tavily_results", [])
+    tavily = state.get("filtered_results", [])
     readmes = state.get("github_readmes", {})
     ph = state.get("producthunt_results", [])
     deep_pages = state.get("deep_pages", {})
@@ -461,15 +465,18 @@ async def run_deep_research(idea: str, category: str | None, settings: Settings)
 
     initial_state: ResearchState = {
         "idea": idea, "cleaned_idea": "", "category": category or "Not specified",
-        "search_queries": [], "tavily_results": [], "github_results": [],
+        "search_queries": [], "tavily_results": [], "filtered_results": [], "github_results": [],
         "github_readmes": {}, "producthunt_results": [], "deep_pages": {},
         "rich_context": "", "analysis": {},
         "raw_sources": [], "status": "running",
-        "progress_events": [("progress", {"message": "Starting deep research...", "pct": 3})],
+        "progress_events": [],
     }
 
     start = time.time()
     final_analysis, final_raw_sources = {}, []
+
+    # astream only emits node updates, so the opening event is sent here.
+    yield ("progress", {"message": "Starting deep research...", "pct": 3})
 
     async for chunk in compiled.astream(initial_state):
         for node_name, update in chunk.items():
