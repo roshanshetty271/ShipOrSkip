@@ -531,6 +531,9 @@ function DashboardContent() {
             const status = err?.response?.status;
             const detail = err?.response?.data?.detail;
             if (status === 401 && detail?.sign_in_required) {
+              // The modal only renders for signed-out visitors, so also show
+              // the message for a session the server no longer accepts.
+              setError(detail.message || "Sign in to access Deep Research.");
               setShowSignInModal(true);
               setMode("fast");
             } else if (status === 429 && detail) {

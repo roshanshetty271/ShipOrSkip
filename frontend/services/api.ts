@@ -25,6 +25,18 @@ function getErrorMessage(err: any, status: number, defaultMsg: string): string {
   return defaultMsg || `Server error: ${status}`;
 }
 
+// Error thrown for non-OK analysis responses. `response` mirrors the
+// { status, data } shape the dashboard reads to pick a message or modal.
+export interface ApiError extends Error {
+  response: { status: number; data: any };
+}
+
+function apiError(body: any, status: number, defaultMsg: string): ApiError {
+  const error = new Error(getErrorMessage(body, status, defaultMsg)) as ApiError;
+  error.response = { status, data: body };
+  return error;
+}
+
 export async function analyzeFast(idea: string, category?: string, turnstileToken?: string) {
   const res = await fetch(`${API_URL}/api/analyze/fast`, {
     method: "POST",
@@ -33,7 +45,7 @@ export async function analyzeFast(idea: string, category?: string, turnstileToke
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: "Analysis failed" }));
-    throw new Error(getErrorMessage(err, res.status, "Analysis failed"));
+    throw apiError(err, res.status, "Analysis failed");
   }
   return res.json();
 }
@@ -43,7 +55,7 @@ export async function analyzeDeepStream(
   category: string | null,
   onProgress: (msg: string) => void,
   onDone: (data: any) => void,
-  onError: (err: string) => void,
+  onError: (err: string | ApiError) => void,
   turnstileToken?: string,
 ) {
   const res = await fetch(`${API_URL}/api/analyze/deep`, {
@@ -54,7 +66,7 @@ export async function analyzeDeepStream(
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: "Research failed" }));
-    onError(getErrorMessage(err, res.status, "Research failed"));
+    onError(apiError(err, res.status, "Research failed"));
     return;
   }
   if (!res.body) { onError("No response body"); return; }
@@ -62,6 +74,21 @@ export async function analyzeDeepStream(
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
+  let finished = false;
+
+  const handleBlock = (block: string) => {
+    if (block.startsWith(":")) return;
+    const dataLine = block.split("\n").find((l) => l.startsWith("data: "));
+    const eventLine = block.split("\n").find((l) => l.startsWith("event: "));
+    if (!dataLine) return;
+    try {
+      const data = JSON.parse(dataLine.slice(6));
+      const event = eventLine?.slice(7) || "message";
+      if (event === "progress") onProgress(data.message);
+      else if (event === "done") { finished = true; onDone(data); }
+      else if (event === "error") { finished = true; onError(data.message || "Research failed."); }
+    } catch { }
+  };
 
   while (true) {
     const { done, value } = await reader.read();
@@ -69,20 +96,13 @@ export async function analyzeDeepStream(
     buffer += decoder.decode(value, { stream: true });
     const blocks = buffer.split("\n\n");
     buffer = blocks.pop() || "";
+    for (const block of blocks) handleBlock(block);
+  }
 
-    for (const block of blocks) {
-      if (block.startsWith(":")) continue;
-      const dataLine = block.split("\n").find((l) => l.startsWith("data: "));
-      const eventLine = block.split("\n").find((l) => l.startsWith("event: "));
-      if (!dataLine) continue;
-      try {
-        const data = JSON.parse(dataLine.slice(6));
-        const event = eventLine?.slice(7) || "message";
-        if (event === "progress") onProgress(data.message);
-        else if (event === "done") onDone(data);
-        else if (event === "error") onError(data.message);
-      } catch { }
-    }
+  buffer += decoder.decode();
+  if (buffer.trim()) handleBlock(buffer);
+  if (!finished) {
+    onError("The connection closed before the research finished. Please try again.");
   }
 }
 
