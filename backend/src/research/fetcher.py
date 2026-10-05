@@ -12,6 +12,7 @@ ShipOrSkip Fetcher Service
 import asyncio
 import re
 from typing import Optional
+from urllib.parse import urlparse
 
 import httpx
 
@@ -464,3 +465,42 @@ def assemble_fast_context(tavily_results: list[dict], max_chars: int = 6000) -> 
     if not lines:
         return "No search results available."
     return "\n\n".join(lines)
+
+
+# ═══════════════════════════════════════
+# Grounding check — drop competitors the search data never mentioned
+# ═══════════════════════════════════════
+
+def _url_host(url: str) -> str:
+    try:
+        host = urlparse(url if "//" in url else f"//{url}").hostname or ""
+    except ValueError:
+        return ""
+    return host.lower().removeprefix("www.")
+
+
+def filter_grounded_competitors(
+    competitors: list[dict], context: str, raw_sources: list[dict],
+) -> list[dict]:
+    """Keep only competitors that can be traced to the search data.
+
+    A competitor stays when its URL's host (without www.) appears in the
+    context or among the raw source URLs, or when its name appears in the
+    context (case-insensitive).
+    """
+    haystack = context.lower()
+    source_hosts = {_url_host(s.get("url", "") or "") for s in raw_sources}
+    source_hosts.discard("")
+
+    kept = []
+    for c in competitors:
+        host = _url_host(c.get("url", "") or "")
+        name = (c.get("name", "") or "").strip().lower()
+        host_found = bool(host) and (
+            host in source_hosts
+            or re.search(r"(?<![a-z0-9-])" + re.escape(host) + r"(?![a-z0-9-])", haystack) is not None
+        )
+        name_found = bool(name) and name in haystack
+        if host_found or name_found:
+            kept.append(c)
+    return kept

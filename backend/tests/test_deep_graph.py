@@ -7,7 +7,7 @@ import pytest
 
 import src.research.agents.graph as graph
 from src.research.fetcher import is_blocked, is_title_blocked
-from src.research.schemas import AnalysisResult
+from src.research.schemas import AnalysisResult, Competitor
 
 RESULTS = {
     "forbes": {"url": "https://www.forbes.com/advisor/business/software/habit-apps/", "title": "Habit apps worth trying", "content": "FORBES-SNIPPET", "raw_content": "F" * 400},
@@ -75,7 +75,10 @@ def run_pipeline(monkeypatch):
 
     settings = SimpleNamespace(tavily_api_key="fake", github_token="", openai_api_key="fake")
 
-    def run():
+    def run(parsed=None):
+        if parsed is not None:
+            captured["parsed"] = parsed
+
         async def collect():
             return [ev async for ev in graph.run_deep_research(
                 "I want to build a habit tracker app that you share with your friends", None, settings)]
@@ -116,3 +119,19 @@ def test_deep_fetch_receives_no_duplicates(run_pipeline):
     normalized = [u.lower().rstrip("/") for u in urls]
     assert len(normalized) == len(set(normalized))
     assert not any(is_blocked(u) for u in urls)
+
+
+def test_report_counts_filtered_sources_and_drops_ungrounded_competitors(run_pipeline):
+    parsed = AnalysisResult(verdict="stub", competitors=[
+        Competitor(name="Habitica", url="https://habitica.com/", description="RPG habits"),
+        Competitor(name="Loop Habit Tracker", url="https://github.com/iSoron/uhabits", description="Open source"),
+        Competitor(name="Invented Inc", url="https://invented.example", description="Not in the data"),
+    ])
+    events, _, _ = run_pipeline(parsed)
+    kind, payload = events[-1]
+    assert kind == "done"
+    report = payload["report"]
+    assert [c["name"] for c in report["competitors"]] == ["Habitica", "Loop Habit Tracker"]
+    # 11 distinct results: forbes and medium are blocked, and the two reddit
+    # URLs differ only by a trailing slash, which leaves 8.
+    assert report["sources_count"] == 8

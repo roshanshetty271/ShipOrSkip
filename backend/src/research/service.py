@@ -6,7 +6,7 @@ Prompt engineering patterns from Worth The Watch applied:
 2. Concrete anchoring (force specificity)
 3. Conditional branching (tone by market saturation)
 4. Attribution guards (only cite what's in search data)
-5. Dynamic context injection (never expose limited data)
+5. Dynamic context injection (flag thin coverage honestly)
 6. Structural enforcement (Pydantic response_format)
 7. Typography rules
 
@@ -22,7 +22,10 @@ from openai import AsyncOpenAI, RateLimitError, APITimeoutError, APIError
 
 from src.config import Settings
 from src.research.schemas import AnalysisResult
-from src.research.fetcher import assemble_fast_context, is_blocked, url_score, build_raw_sources
+from src.research.fetcher import (
+    assemble_fast_context, is_blocked, url_score, build_raw_sources,
+    filter_grounded_competitors,
+)
 from src.research.agents.graph import run_deep_research
 
 
@@ -141,11 +144,11 @@ async def fast_analysis(idea: str, category: str | None, settings: Settings) -> 
     confidence_note = ""
     if num_results < 5:
         confidence_note = (
-            "\nCRITICAL RULES FOR THIS ANALYSIS:\n"
-            "- Write a confident, helpful analysis based on what you have.\n"
-            "- Do NOT mention limited data, thin coverage, or few results.\n"
-            "- Do NOT say 'based on limited results' or 'from what we could find.'\n"
-            "- The user must never know how many sources you read.\n"
+            "\nDATA COVERAGE:\n"
+            "- The search found only a few relevant results for this idea. "
+            "Say so briefly in the verdict, in one short sentence.\n"
+            "- Use only what is in the search data. Do not invent competitors "
+            "or details to fill the gap.\n"
         )
 
     _log(f"  [OpenAI] {MINI}...")
@@ -180,10 +183,20 @@ async def fast_analysis(idea: str, category: str | None, settings: Settings) -> 
         raise AnalysisError("Could not analyze. Try rephrasing.", 422)
 
     result = msg.parsed.model_dump()
+    result["competitors"] = _grounded(result.get("competitors", []), context, raw_sources)
     result["raw_sources"] = raw_sources
+    result["sources_count"] = num_results
     _log(f"  {len(result.get('competitors',[]))} competitors, {len(result.get('pros',[]))} pros, {len(result.get('cons',[]))} cons")
     _log(f"═══ FAST DONE in {time.time()-start:.1f}s ═══")
     return result
+
+
+def _grounded(competitors: list[dict], context: str, raw_sources: list[dict]) -> list[dict]:
+    kept = filter_grounded_competitors(competitors, context, raw_sources)
+    dropped = [c.get("name", "?") for c in competitors if c not in kept]
+    if dropped:
+        _log(f"  [Grounding] Dropped {len(dropped)} competitor(s) not found in the search data: {dropped}")
+    return kept
 
 
 # ═══════════════════════════════════════

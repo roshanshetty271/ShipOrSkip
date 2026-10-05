@@ -291,6 +291,7 @@ export default function ResearchDetailPage() {
   const buildPlan = (result.build_plan || []) as string[];
   const verdict = result.verdict || "";
   const rawSources = (result.raw_sources || []) as RawSource[];
+  const sourcesCount = typeof result.sources_count === "number" ? result.sources_count : null;
 
   const extraSources = (() => {
     const names = new Set(competitors.map(c => c.name?.toLowerCase().trim()));
@@ -385,6 +386,11 @@ export default function ResearchDetailPage() {
                 <p className="text-base sm:text-lg leading-relaxed text-ink-900 max-w-4xl break-words">
                   {verdict}
                 </p>
+                {sourcesCount !== null && (
+                  <p className="text-[10px] font-mono text-text-tertiary uppercase tracking-[0.2em] mt-4">
+                    Based on {sourcesCount} {sourcesCount === 1 ? "source" : "sources"}
+                  </p>
+                )}
               </section>
             )}
 

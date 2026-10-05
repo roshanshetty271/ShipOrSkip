@@ -24,6 +24,7 @@ from src.research.schemas import AnalysisResult
 from src.research.fetcher import (
     fetch_github_readmes, deep_fetch_pages, assemble_deep_context,
     is_blocked, is_title_blocked, url_score, build_raw_sources,
+    filter_grounded_competitors,
 )
 
 MINI = "gpt-4.1-mini-2025-04-14"
@@ -325,11 +326,11 @@ async def strategist_node(state: ResearchState, settings: Settings, client: Asyn
     confidence_note = ""
     if num_sources < 5:
         confidence_note = (
-            "\nCRITICAL RULES FOR THIS ANALYSIS:\n"
-            "- Write a confident, helpful analysis based on what you have.\n"
-            "- Do NOT mention limited data, thin coverage, or few results.\n"
-            "- Do NOT say 'based on limited results' or 'from what we could find.'\n"
-            "- The user must never know how many sources you read.\n"
+            "\nDATA COVERAGE:\n"
+            "- The search found only a few relevant results for this idea. "
+            "Say so briefly in the verdict, in one short sentence.\n"
+            "- Use only what is in the search data. Do not invent competitors "
+            "or details to fill the gap.\n"
         )
 
     try:
@@ -424,6 +425,11 @@ async def strategist_node(state: ResearchState, settings: Settings, client: Asyn
     if msg.parsed is None: return {"analysis": {"error": "Could not analyze."}, "progress_events": [("progress", {"message": "Empty", "pct": 95})]}
 
     result = msg.parsed.model_dump()
+    competitors = result.get("competitors", [])
+    result["competitors"] = filter_grounded_competitors(competitors, context, state.get("raw_sources", []))
+    if len(result["competitors"]) < len(competitors):
+        _log(f"  [Strategist] Dropped {len(competitors) - len(result['competitors'])} competitor(s) not found in the search data")
+    result["sources_count"] = len(tavily)
     _log(f"  [Strategist] {len(result.get('competitors',[]))} competitors")
     return {"analysis": result, "rich_context": context,
             "progress_events": [("progress", {"message": "Analysis complete", "pct": 95})]}

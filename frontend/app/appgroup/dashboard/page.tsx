@@ -641,6 +641,16 @@ function DashboardContent() {
     return (direct as string) || (fromReport as string) || "Analysis complete.";
   }, [result]);
 
+  // Older backends do not send sources_count, so it stays null for them.
+  const sourcesCount = useMemo(() => {
+    if (!result) return null;
+    const report = result.report && typeof result.report === "object"
+      ? (result.report as Record<string, unknown>)
+      : undefined;
+    const val = result.sources_count ?? report?.sources_count;
+    return typeof val === "number" ? val : null;
+  }, [result]);
+
   const competitors = useMemo(() => getField("competitors") as CompetitorItem[], [getField]);
   const gaps = useMemo(() => getField("gaps") as string[], [getField]);
   const pros = useMemo(() => getField("pros") as string[], [getField]);
@@ -894,9 +904,12 @@ function DashboardContent() {
                 {result && (
                   <div className="text-xs text-text-tertiary font-mono mb-4 flex items-center gap-2">
                     {result._mode === "deep" ? (
-                      <><Search className="w-3 h-3" /> Deep research — {rawSources.length}+ sources analyzed</>
+                      <><Search className="w-3 h-3" /> Deep research{sourcesCount === null && <> — {rawSources.length}+ sources analyzed</>}</>
                     ) : (
                       <><Zap className="w-3 h-3" /> Quick check — switch to Deep Research for a thorough analysis</>
+                    )}
+                    {sourcesCount !== null && (
+                      <span>· Based on {sourcesCount} {sourcesCount === 1 ? "source" : "sources"}</span>
                     )}
                   </div>
                 )}
