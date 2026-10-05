@@ -13,14 +13,17 @@ GET /api/limits returns current remaining for frontend display.
 """
 
 import hashlib
+import hmac
 import json
 import logging
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse, Response
 
+from src.client_ip import get_client_ip
 from src.middleware import limiter
 from src.research.schemas import AnalyzeRequest
 from pydantic import BaseModel, Field
@@ -50,22 +53,31 @@ FREE_DEEP_DAILY = 1
 # ═══════════════════════════════════════
 # ═══════════════════════════════════════
 
-_verified_ips: set[str] = set()
+# IP -> monotonic expiry of a passed Turnstile check
+TURNSTILE_PASS_TTL_SECONDS = 6 * 60 * 60
+_verified_ips: dict[str, float] = {}
 
 
-def _get_client_ip(request: Request) -> str:
-    forwarded = request.headers.get("x-forwarded-for", "")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    return request.client.host if request.client else "unknown"
+class UsageUnavailable(Exception):
+    """The anonymous usage row could not be read."""
+
+
+def _ip_hash_key(settings: Settings) -> bytes:
+    if settings.ip_hash_salt:
+        return settings.ip_hash_salt.encode()
+    return hashlib.sha256(b"shiporskip-ip-hash:" + settings.supabase_service_key.encode()).digest()
 
 
 def _hash_ip(ip: str) -> str:
-    return hashlib.sha256(ip.encode()).hexdigest()
+    return hmac.new(_ip_hash_key(get_settings()), ip.encode(), hashlib.sha256).hexdigest()
 
 
-def _get_anon_usage(ip_hash: str) -> dict:
-    """Fetch anonymous usage from DB. Falls back to zeros on error."""
+def _get_anon_usage(ip_hash: str, strict: bool = False) -> dict:
+    """Fetch anonymous usage from DB.
+
+    Without Supabase configured (local dev) usage is zero. On a read
+    error, strict callers get UsageUnavailable; others get zeros.
+    """
     sb = get_supabase_client()
     if not sb:
         return {"fast": 0, "deep": 0}
@@ -76,6 +88,8 @@ def _get_anon_usage(ip_hash: str) -> dict:
             return {"fast": row.get("fast_count", 0), "deep": row.get("deep_count", 0)}
     except Exception as e:
         logger.warning(f"Could not fetch anon usage: {e}")
+        if strict:
+            raise UsageUnavailable() from e
     return {"fast": 0, "deep": 0}
 
 
@@ -138,8 +152,11 @@ def _get_rolling_usage(user_id: str, analysis_type: str, limit: int) -> dict:
 
 
 def _get_anon_remaining(request: Request) -> dict:
-    ip = _get_client_ip(request)
-    usage = _get_anon_usage(_hash_ip(ip))
+    usage = _get_anon_usage(_hash_ip(get_client_ip(request)))
+    return _anon_limits(usage)
+
+
+def _anon_limits(usage: dict) -> dict:
     return {
         "remaining_fast": max(0, ANON_FAST_LIMIT - usage["fast"]),
         "remaining_deep": max(0, ANON_DEEP_LIMIT - usage["deep"]),
@@ -196,8 +213,9 @@ async def _get_signed_in_remaining(user: dict) -> dict:
 # ═══════════════════════════════════════
 
 async def _check_turnstile(request: Request, token: Optional[str], settings: Settings):
-    ip = _get_client_ip(request)
-    if ip in _verified_ips:
+    ip = get_client_ip(request)
+    now = time.monotonic()
+    if _verified_ips.get(ip, 0) > now:
         return
 
     secret = settings.turnstile_secret_key.strip()
@@ -208,8 +226,10 @@ async def _check_turnstile(request: Request, token: Optional[str], settings: Set
     valid = await verify_turnstile(token, secret)
     if not valid:
         raise HTTPException(status_code=403, detail="Bot verification failed")
-    
-    _verified_ips.add(ip)
+
+    for expired in [k for k, expires in _verified_ips.items() if expires <= now]:
+        del _verified_ips[expired]
+    _verified_ips[ip] = now + TURNSTILE_PASS_TTL_SECONDS
 
 
 def _check_anon_limit(request: Request, analysis_type: str):
@@ -220,21 +240,21 @@ def _check_anon_limit(request: Request, analysis_type: str):
             "sign_in_required": True,
         })
 
-    ip = _get_client_ip(request)
-    ip_hash = _hash_ip(ip)
-    usage = _get_anon_usage(ip_hash)
-    remaining = _get_anon_remaining(request)
+    try:
+        usage = _get_anon_usage(_hash_ip(get_client_ip(request)), strict=True)
+    except UsageUnavailable:
+        # Fail closed: without the count, anonymous runs would be unlimited.
+        raise HTTPException(status_code=503, detail="Usage check is unavailable, try again shortly.")
 
     if usage["fast"] >= ANON_FAST_LIMIT:
         raise HTTPException(status_code=429, detail={
             "message": f"You've used all {ANON_FAST_LIMIT} free analysis runs. Sign in to get more.",
-            "sign_in_required": True, **remaining,
+            "sign_in_required": True, **_anon_limits(usage),
         })
 
 
 def _increment_anon(request: Request, analysis_type: str):
-    ip = _get_client_ip(request)
-    _increment_anon_db(_hash_ip(ip), analysis_type)
+    _increment_anon_db(_hash_ip(get_client_ip(request)), analysis_type)
 
 
 async def _check_signed_in_fast_limit(user: dict):

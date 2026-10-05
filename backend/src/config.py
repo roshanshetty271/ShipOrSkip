@@ -14,6 +14,9 @@ class Settings(BaseSettings):
     github_token: str = ""
     producthunt_token: str = ""
     turnstile_secret_key: str = ""
+    # HMAC key for anonymous IP hashes. Falls back to a key derived from
+    # supabase_service_key when unset.
+    ip_hash_salt: str = ""
 
     # App
     frontend_url: str = "http://localhost:3000"

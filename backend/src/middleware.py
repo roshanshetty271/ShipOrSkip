@@ -3,10 +3,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from slowapi import Limiter, _rate_limit_exceeded_handler
-from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
-limiter = Limiter(key_func=get_remote_address)
+from src.client_ip import get_client_ip
+
+# Keyed on the forwarded client IP. The socket peer behind the proxy is
+# the proxy itself, which would put every visitor in one bucket.
+limiter = Limiter(key_func=get_client_ip)
 
 
 def setup_middleware(app: FastAPI, frontend_url: str, allowed_hosts: list[str] | None = None):
