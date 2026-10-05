@@ -44,7 +44,7 @@ DOMAIN_BLOCKLIST = {
     "forbes.com", "businessinsider.com", "entrepreneur.com",
     "inc.com", "fastcompany.com", "wired.com",
     # Aggregators / review sites
-    "g2.com", "capterra.com", "alternativeto.com",
+    "g2.com", "capterra.com", "alternativeto.com", "alternativeto.net",
     "slant.co", "sourceforge.net", "softwareadvice.com",
     "futurepedia.io", "pineapplebuilder.com", "bubble.io",
     "flowjam.com", "theresanaiforthat.com", "soft112.com",
@@ -72,6 +72,12 @@ DOMAIN_BLOCKLIST = {
     "ship-or-skip-peach.vercel.app",
 }
 
+# github.com/<first segment> paths that are site pages, not repositories
+GITHUB_NON_REPO_OWNERS = {
+    "topics", "search", "trending", "explore", "orgs",
+    "marketplace", "sponsors", "features", "collections",
+}
+
 HIGH_VALUE_DOMAINS = {
     "github.com", "producthunt.com", "news.ycombinator.com",
     "indiehackers.com", "devpost.com",
@@ -82,6 +88,7 @@ HIGH_VALUE_DOMAINS = {
 TITLE_BLOCKLIST_PATTERNS = [
     r"^best .+ alternatives",
     r"^\d+ best .+",
+    r"^the \d+ best ",
     r"^top \d+",
     r"^how to build",
     r"^how to create",
@@ -89,6 +96,7 @@ TITLE_BLOCKLIST_PATTERNS = [
     r"alternatives for",
     r"alternatives to",
     r"alternatives \(",
+    r" alternatives(:| \||$)",
     r"reviews?:.+pricing",
     r"reviews?:.+alternatives",
     r"ultimate guide",
@@ -127,7 +135,9 @@ def url_score(url: str) -> int:
         return 0
 
     if "github.com" in domain and url.count("/") >= 4:
-        return 100
+        owner = url.split("//")[-1].split("/")[1].lower()
+        if owner not in GITHUB_NON_REPO_OWNERS:
+            return 100
     if "producthunt.com" in domain and ("/posts/" in url or "/products/" in url):
         return 95
     for hv in HIGH_VALUE_DOMAINS:
@@ -196,7 +206,7 @@ def _extract_github_repos(urls: list[str]) -> list[tuple[str, str]]:
         if match:
             owner, repo = match.group(1), match.group(2)
             key = f"{owner}/{repo}".lower()
-            if key not in seen and owner not in ("topics", "search", "trending", "explore", "orgs"):
+            if key not in seen and owner.lower() not in GITHUB_NON_REPO_OWNERS:
                 seen.add(key)
                 repos.append((owner, repo))
     return repos
