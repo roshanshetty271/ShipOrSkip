@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Literal, Optional
 
 
 class AnalyzeRequest(BaseModel):
@@ -13,14 +13,14 @@ class Competitor(BaseModel):
     url: str = ""
     description: str
     differentiator: str = ""
-    threat_level: str = "medium"
+    threat_level: Literal["low", "medium", "high"] = "medium"
 
 
 class AnalysisResult(BaseModel):
     competitors: list[Competitor] = []
     pros: list[str] = []
     cons: list[str] = []
-    market_saturation: str = "medium"
+    market_saturation: Literal["low", "medium", "high"] = "medium"
     gaps: list[str] = []
     verdict: str = ""
     build_plan: list[str] = []

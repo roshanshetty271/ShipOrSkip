@@ -83,6 +83,8 @@ function SourceBadge({ type }: { type: string }) {
   );
 }
 
+const SATURATION_LEVELS = ["low", "medium", "high"];
+
 // Friendly progress messages for deep research
 function friendlyProgress(raw: string): string {
   const lower = raw.toLowerCase();
@@ -651,6 +653,16 @@ function DashboardContent() {
     return typeof val === "number" ? val : null;
   }, [result]);
 
+  const marketSaturation = useMemo(() => {
+    if (!result) return null;
+    const report = result.report && typeof result.report === "object"
+      ? (result.report as Record<string, unknown>)
+      : undefined;
+    const val = result.market_saturation ?? report?.market_saturation;
+    const level = typeof val === "string" ? val.toLowerCase() : "";
+    return SATURATION_LEVELS.includes(level) ? level : null;
+  }, [result]);
+
   const competitors = useMemo(() => getField("competitors") as CompetitorItem[], [getField]);
   const gaps = useMemo(() => getField("gaps") as string[], [getField]);
   const pros = useMemo(() => getField("pros") as string[], [getField]);
@@ -917,9 +929,16 @@ function DashboardContent() {
                 {/* Verdict */}
                 {verdict ? (
                   <div className="mb-4">
-                    <span className="inline-block px-3 py-1 bg-accent-green/10 text-accent-green font-mono text-[10px] uppercase tracking-[0.2em] mb-4 rounded-full border border-accent-green/20">
-                      Executive Verdict
-                    </span>
+                    <div className="flex flex-wrap items-center gap-2 mb-4">
+                      <span className="inline-block px-3 py-1 bg-accent-green/10 text-accent-green font-mono text-[10px] uppercase tracking-[0.2em] rounded-full border border-accent-green/20">
+                        Executive Verdict
+                      </span>
+                      {marketSaturation && (
+                        <span className="inline-block px-3 py-1 bg-background-raised text-text-secondary font-mono text-[10px] uppercase tracking-[0.2em] rounded-full border border-border/50">
+                          {marketSaturation} saturation
+                        </span>
+                      )}
+                    </div>
                     <p className="font-sans text-xl leading-[1.6] text-ink-900 font-medium tracking-tight mb-4 max-w-5xl">{verdict}</p>
                   </div>
                 ) : null}
@@ -934,18 +953,20 @@ function DashboardContent() {
                       </span>
                     </div>
                     <div className="grid grid-cols-1 gap-6 w-full">
-                      {competitors.map((c, i) => (
+                      {competitors.map((c, i) => {
+                        const threat = c.threat_level?.toLowerCase();
+                        return (
                         <div key={i} className="group flex flex-col bg-white rounded-2xl p-6 border border-border/50 hover:border-accent/30 hover:shadow-md transition-all duration-300 relative overflow-hidden">
                           <div className="absolute top-0 left-0 w-1 h-full bg-accent scale-y-0 group-hover:scale-y-100 origin-top transition-transform duration-500 ease-out"></div>
 
                           <div className="flex justify-between items-start gap-4 mb-4">
                             <h4 className="font-display text-2xl text-ink-900 leading-snug">{c.name}</h4>
-                            {c.threat_level && (
-                              <span className={`shrink-0 px-2.5 py-1 text-[9px] uppercase font-mono tracking-widest rounded-full ${c.threat_level === "high" ? "bg-accent/10 text-accent border border-accent/20" :
-                                c.threat_level === "medium" ? "bg-orange-100 text-orange-700 border border-orange-200" :
+                            {threat && (
+                              <span className={`shrink-0 px-2.5 py-1 text-[9px] uppercase font-mono tracking-widest rounded-full ${threat === "high" ? "bg-accent/10 text-accent border border-accent/20" :
+                                threat === "medium" ? "bg-orange-100 text-orange-700 border border-orange-200" :
                                   "bg-accent-green/10 text-accent-green border border-accent-green/20"
                                 }`}>
-                                {c.threat_level} THREAT
+                                {threat} THREAT
                               </span>
                             )}
                           </div>
@@ -966,7 +987,8 @@ function DashboardContent() {
                             </a>
                           )}
                         </div>
-                      ))}
+                        );
+                      })}
                     </div>
 
                     {!user && extraSources.length > 0 && (
