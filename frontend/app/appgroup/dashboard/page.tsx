@@ -329,6 +329,7 @@ function DashboardContent() {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<Record<string, unknown> | null>(null);
   const [progress, setProgress] = useState("");
+  const [progressPct, setProgressPct] = useState<number | null>(null);
   const [error, setError] = useState("");
   const [token, setToken] = useState<string>("");
   const [verified, setVerified] = useState(false);
@@ -503,6 +504,7 @@ function DashboardContent() {
     setResult(null);
     setError("");
     setShowAllSources(false);
+    setProgressPct(null);
 
     if (mode === "deep") {
       setProgress("Starting research...");
@@ -510,7 +512,10 @@ function DashboardContent() {
         await analyzeDeepStream(
           idea,
           null,
-          (msg: string) => setProgress(friendlyProgress(msg)),
+          (msg: string, pct?: number) => {
+            setProgress(friendlyProgress(msg));
+            if (pct !== undefined) setProgressPct(Math.max(0, Math.min(100, pct)));
+          },
           (data: Record<string, unknown>) => {
             setResult({ ...data, _mode: "deep" });
             if (data.limits) {
@@ -875,6 +880,24 @@ function DashboardContent() {
                   <p className="text-xs font-mono text-accent-green tracking-widest uppercase mb-4 text-center bg-accent-green/10 px-4 py-1.5 rounded-full border border-accent-green/20 font-bold shadow-sm">
                     {progress}
                   </p>
+                  {progressPct !== null && (
+                    <div className="w-full max-w-xs flex items-center gap-3 mb-2">
+                      <div
+                        className="flex-1 h-1 bg-accent-green/10 rounded-full overflow-hidden"
+                        role="progressbar"
+                        aria-label="Research progress"
+                        aria-valuemin={0}
+                        aria-valuemax={100}
+                        aria-valuenow={progressPct}
+                      >
+                        <div
+                          className="h-full bg-accent-green rounded-full transition-all duration-500"
+                          style={{ width: `${progressPct}%` }}
+                        />
+                      </div>
+                      <span className="font-mono text-[10px] tabular-nums text-text-tertiary w-8 text-right">{progressPct}%</span>
+                    </div>
+                  )}
                   <p className="font-sans text-text-tertiary text-sm mt-4 text-center max-w-sm">
                     Our AI agents are currently scouring the web, analyzing competitors, and generating a custom validation report for your idea.
                   </p>

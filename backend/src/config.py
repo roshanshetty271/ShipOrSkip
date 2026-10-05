@@ -12,7 +12,6 @@ class Settings(BaseSettings):
     supabase_url: str = ""
     supabase_service_key: str = ""
     github_token: str = ""
-    producthunt_token: str = ""
     turnstile_secret_key: str = ""
     # HMAC key for anonymous IP hashes. Falls back to a key derived from
     # supabase_service_key when unset.
@@ -24,6 +23,9 @@ class Settings(BaseSettings):
 
     class Config:
         env_file = ".env"
+        # Keys in .env that no setting reads, such as the removed
+        # PRODUCTHUNT_TOKEN, are ignored instead of failing startup.
+        extra = "ignore"
 
 
 @lru_cache

@@ -53,7 +53,7 @@ export async function analyzeFast(idea: string, category?: string, turnstileToke
 export async function analyzeDeepStream(
   idea: string,
   category: string | null,
-  onProgress: (msg: string) => void,
+  onProgress: (msg: string, pct?: number) => void,
   onDone: (data: any) => void,
   onError: (err: string | ApiError) => void,
   turnstileToken?: string,
@@ -84,7 +84,7 @@ export async function analyzeDeepStream(
     try {
       const data = JSON.parse(dataLine.slice(6));
       const event = eventLine?.slice(7) || "message";
-      if (event === "progress") onProgress(data.message);
+      if (event === "progress") onProgress(data.message, typeof data.pct === "number" ? data.pct : undefined);
       else if (event === "done") { finished = true; onDone(data); }
       else if (event === "error") { finished = true; onError(data.message || "Research failed."); }
     } catch { }
