@@ -149,11 +149,11 @@ export default function Home() {
                 <ul className="space-y-4 font-mono text-xs uppercase tracking-widest text-white relative z-10">
                   <li className="flex items-start gap-3">
                     <Zap className="w-4 h-4 shrink-0 mt-0.5 text-accent-green" />
-                    <span>10 Fast Analyses / Day<br /><span className="text-[10px] text-gray-400 normal-case tracking-normal">~15 sec turnaround</span></span>
+                    <span>3 Fast Analyses / Day<br /><span className="text-[10px] text-gray-400 normal-case tracking-normal">Rolling 24-hour window</span></span>
                   </li>
                   <li className="flex items-start gap-3">
                     <Search className="w-4 h-4 shrink-0 mt-0.5 text-accent-green" />
-                    <span>3 Deep Researches / Day<br /><span className="text-[10px] text-gray-400 normal-case tracking-normal">Multi-agent deep dive</span></span>
+                    <span>1 Deep Research / Day<br /><span className="text-[10px] text-gray-400 normal-case tracking-normal">Multi-agent deep dive</span></span>
                   </li>
                   <li className="flex items-start gap-3">
                     <Clock className="w-4 h-4 shrink-0 mt-0.5 text-accent-green" />

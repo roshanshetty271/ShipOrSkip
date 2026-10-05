@@ -11,7 +11,6 @@ sse-starlette==2.2.1
 slowapi==0.1.9
 supabase==2.11.0
 python-dotenv==1.0.1
-gunicorn==23.0.0
 fpdf2==2.8.2
 trafilatura==1.12.2
 fake_useragent==1.5.1
