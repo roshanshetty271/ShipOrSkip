@@ -3,8 +3,8 @@ ShipOrSkip Deep Research — LangGraph Pipeline v3.6
 
 Changes:
 - Same prompt voice as fast mode (no extra "deep research instructions" bloat)
-- Uses build_raw_sources() with relevance filtering + 25 cap
-- All mini, no extractor, baseline+bonus queries, 16K context
+- Uses build_raw_sources() for the source list (domain and title blocklists only)
+- All mini, no extractor, 6 baseline queries, 12,000-char context
 - 7 nodes: planner → [tavily, github, PH] → dedup → deep_fetch → strategize
 """
 

@@ -2,9 +2,9 @@
 ShipOrSkip Research Router
 
 Rate limits:
-  Per-minute (slowapi):    10/min fast, 3/min deep
-  Anonymous (IP tracked):  3 fast total, 1 deep total (persisted in DB)
-  Signed-in Free:          10 fast / 3 deep per rolling 24h window
+  Per-minute (slowapi):    10/min fast, 3/min deep, per client IP
+  Anonymous (IP tracked):  2 fast total, no deep (sign-in required), persisted in DB
+  Signed-in Free:          3 fast / 1 deep per rolling 24h window (failed runs not counted)
   Signed-in Premium:       unlimited
   Chat: 5 messages/research (free tier)
 
