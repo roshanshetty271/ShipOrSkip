@@ -83,6 +83,8 @@ function SourceBadge({ type }: { type: string }) {
   );
 }
 
+const SATURATION_LEVELS = ["low", "medium", "high"];
+
 // Friendly progress messages for deep research
 function friendlyProgress(raw: string): string {
   const lower = raw.toLowerCase();
@@ -235,7 +237,7 @@ const SignInModal = memo(function SignInModal({
 
         <div className="space-y-4 mb-8">
           {[
-            "10 fast + 3 deep analysis runs daily",
+            "3 fast + 1 deep analysis runs daily",
             "Chat with AI about your results",
             "Export complete research to PDF",
             "See all discovered source links",
@@ -327,6 +329,7 @@ function DashboardContent() {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<Record<string, unknown> | null>(null);
   const [progress, setProgress] = useState("");
+  const [progressPct, setProgressPct] = useState<number | null>(null);
   const [error, setError] = useState("");
   const [token, setToken] = useState<string>("");
   const [verified, setVerified] = useState(false);
@@ -501,6 +504,7 @@ function DashboardContent() {
     setResult(null);
     setError("");
     setShowAllSources(false);
+    setProgressPct(null);
 
     if (mode === "deep") {
       setProgress("Starting research...");
@@ -508,7 +512,10 @@ function DashboardContent() {
         await analyzeDeepStream(
           idea,
           null,
-          (msg: string) => setProgress(friendlyProgress(msg)),
+          (msg: string, pct?: number) => {
+            setProgress(friendlyProgress(msg));
+            if (pct !== undefined) setProgressPct(Math.max(0, Math.min(100, pct)));
+          },
           (data: Record<string, unknown>) => {
             setResult({ ...data, _mode: "deep" });
             if (data.limits) {
@@ -529,6 +536,9 @@ function DashboardContent() {
             const status = err?.response?.status;
             const detail = err?.response?.data?.detail;
             if (status === 401 && detail?.sign_in_required) {
+              // The modal only renders for signed-out visitors, so also show
+              // the message for a session the server no longer accepts.
+              setError(detail.message || "Sign in to access Deep Research.");
               setShowSignInModal(true);
               setMode("fast");
             } else if (status === 429 && detail) {
@@ -639,6 +649,26 @@ function DashboardContent() {
         ? (result.report as Record<string, unknown>).verdict
         : undefined;
     return (direct as string) || (fromReport as string) || "Analysis complete.";
+  }, [result]);
+
+  // Older backends do not send sources_count, so it stays null for them.
+  const sourcesCount = useMemo(() => {
+    if (!result) return null;
+    const report = result.report && typeof result.report === "object"
+      ? (result.report as Record<string, unknown>)
+      : undefined;
+    const val = result.sources_count ?? report?.sources_count;
+    return typeof val === "number" ? val : null;
+  }, [result]);
+
+  const marketSaturation = useMemo(() => {
+    if (!result) return null;
+    const report = result.report && typeof result.report === "object"
+      ? (result.report as Record<string, unknown>)
+      : undefined;
+    const val = result.market_saturation ?? report?.market_saturation;
+    const level = typeof val === "string" ? val.toLowerCase() : "";
+    return SATURATION_LEVELS.includes(level) ? level : null;
   }, [result]);
 
   const competitors = useMemo(() => getField("competitors") as CompetitorItem[], [getField]);
@@ -850,6 +880,24 @@ function DashboardContent() {
                   <p className="text-xs font-mono text-accent-green tracking-widest uppercase mb-4 text-center bg-accent-green/10 px-4 py-1.5 rounded-full border border-accent-green/20 font-bold shadow-sm">
                     {progress}
                   </p>
+                  {progressPct !== null && (
+                    <div className="w-full max-w-xs flex items-center gap-3 mb-2">
+                      <div
+                        className="flex-1 h-1 bg-accent-green/10 rounded-full overflow-hidden"
+                        role="progressbar"
+                        aria-label="Research progress"
+                        aria-valuemin={0}
+                        aria-valuemax={100}
+                        aria-valuenow={progressPct}
+                      >
+                        <div
+                          className="h-full bg-accent-green rounded-full transition-all duration-500"
+                          style={{ width: `${progressPct}%` }}
+                        />
+                      </div>
+                      <span className="font-mono text-[10px] tabular-nums text-text-tertiary w-8 text-right">{progressPct}%</span>
+                    </div>
+                  )}
                   <p className="font-sans text-text-tertiary text-sm mt-4 text-center max-w-sm">
                     Our AI agents are currently scouring the web, analyzing competitors, and generating a custom validation report for your idea.
                   </p>
@@ -894,9 +942,12 @@ function DashboardContent() {
                 {result && (
                   <div className="text-xs text-text-tertiary font-mono mb-4 flex items-center gap-2">
                     {result._mode === "deep" ? (
-                      <><Search className="w-3 h-3" /> Deep research — {rawSources.length}+ sources analyzed</>
+                      <><Search className="w-3 h-3" /> Deep research{sourcesCount === null && <> — {rawSources.length}+ sources analyzed</>}</>
                     ) : (
                       <><Zap className="w-3 h-3" /> Quick check — switch to Deep Research for a thorough analysis</>
+                    )}
+                    {sourcesCount !== null && (
+                      <span>· Based on {sourcesCount} {sourcesCount === 1 ? "source" : "sources"}</span>
                     )}
                   </div>
                 )}
@@ -904,9 +955,16 @@ function DashboardContent() {
                 {/* Verdict */}
                 {verdict ? (
                   <div className="mb-4">
-                    <span className="inline-block px-3 py-1 bg-accent-green/10 text-accent-green font-mono text-[10px] uppercase tracking-[0.2em] mb-4 rounded-full border border-accent-green/20">
-                      Executive Verdict
-                    </span>
+                    <div className="flex flex-wrap items-center gap-2 mb-4">
+                      <span className="inline-block px-3 py-1 bg-accent-green/10 text-accent-green font-mono text-[10px] uppercase tracking-[0.2em] rounded-full border border-accent-green/20">
+                        Executive Verdict
+                      </span>
+                      {marketSaturation && (
+                        <span className="inline-block px-3 py-1 bg-background-raised text-text-secondary font-mono text-[10px] uppercase tracking-[0.2em] rounded-full border border-border/50">
+                          {marketSaturation} saturation
+                        </span>
+                      )}
+                    </div>
                     <p className="font-sans text-xl leading-[1.6] text-ink-900 font-medium tracking-tight mb-4 max-w-5xl">{verdict}</p>
                   </div>
                 ) : null}
@@ -921,18 +979,20 @@ function DashboardContent() {
                       </span>
                     </div>
                     <div className="grid grid-cols-1 gap-6 w-full">
-                      {competitors.map((c, i) => (
+                      {competitors.map((c, i) => {
+                        const threat = c.threat_level?.toLowerCase();
+                        return (
                         <div key={i} className="group flex flex-col bg-white rounded-2xl p-6 border border-border/50 hover:border-accent/30 hover:shadow-md transition-all duration-300 relative overflow-hidden">
                           <div className="absolute top-0 left-0 w-1 h-full bg-accent scale-y-0 group-hover:scale-y-100 origin-top transition-transform duration-500 ease-out"></div>
 
                           <div className="flex justify-between items-start gap-4 mb-4">
                             <h4 className="font-display text-2xl text-ink-900 leading-snug">{c.name}</h4>
-                            {c.threat_level && (
-                              <span className={`shrink-0 px-2.5 py-1 text-[9px] uppercase font-mono tracking-widest rounded-full ${c.threat_level === "high" ? "bg-accent/10 text-accent border border-accent/20" :
-                                c.threat_level === "medium" ? "bg-orange-100 text-orange-700 border border-orange-200" :
+                            {threat && (
+                              <span className={`shrink-0 px-2.5 py-1 text-[9px] uppercase font-mono tracking-widest rounded-full ${threat === "high" ? "bg-accent/10 text-accent border border-accent/20" :
+                                threat === "medium" ? "bg-orange-100 text-orange-700 border border-orange-200" :
                                   "bg-accent-green/10 text-accent-green border border-accent-green/20"
                                 }`}>
-                                {c.threat_level} THREAT
+                                {threat} THREAT
                               </span>
                             )}
                           </div>
@@ -953,7 +1013,8 @@ function DashboardContent() {
                             </a>
                           )}
                         </div>
-                      ))}
+                        );
+                      })}
                     </div>
 
                     {!user && extraSources.length > 0 && (

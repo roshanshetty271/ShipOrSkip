@@ -1,0 +1,4 @@
+# Newer ruff releases widen the default rule set. Select the long-standing
+# defaults explicitly so a ruff upgrade does not change what CI enforces.
+[lint]
+select = ["E4", "E7", "E9", "F"]

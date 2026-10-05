@@ -3,12 +3,11 @@ ShipOrSkip Deep Research — LangGraph Pipeline v3.6
 
 Changes:
 - Same prompt voice as fast mode (no extra "deep research instructions" bloat)
-- Uses build_raw_sources() with relevance filtering + 25 cap
-- All mini, no extractor, baseline+bonus queries, 16K context
+- Uses build_raw_sources() for the source list (domain and title blocklists only)
+- All mini, no extractor, 6 baseline queries, 12,000-char context
 - 7 nodes: planner → [tavily, github, PH] → dedup → deep_fetch → strategize
 """
 
-import json
 import re
 import asyncio
 import time
@@ -23,7 +22,8 @@ from src.config import Settings
 from src.research.schemas import AnalysisResult
 from src.research.fetcher import (
     fetch_github_readmes, deep_fetch_pages, assemble_deep_context,
-    is_blocked, url_score, build_raw_sources,
+    is_blocked, is_title_blocked, url_score, build_raw_sources,
+    filter_grounded_competitors,
 )
 
 MINI = "gpt-4.1-mini-2025-04-14"
@@ -39,6 +39,9 @@ class ResearchState(TypedDict):
     category: str
     search_queries: list[str]
     tavily_results: Annotated[list[dict], add]
+    # Deduplicated, blocklist-filtered results. No reducer, so the
+    # deduplicator replaces it instead of appending to the raw list.
+    filtered_results: list[dict]
     github_results: Annotated[list[str], add]
     github_readmes: dict
     producthunt_results: Annotated[list[str], add]
@@ -183,7 +186,7 @@ async def tavily_search_node(state: ResearchState, settings: Settings, **_) -> d
 
 
 async def github_search_node(state: ResearchState, settings: Settings, **_) -> dict:
-    _log(f"  [GitHubSearch] Starting...")
+    _log("  [GitHubSearch] Starting...")
     idea = state.get("cleaned_idea", state["idea"])
     results = []
     if settings.github_token:
@@ -199,7 +202,7 @@ async def github_search_node(state: ResearchState, settings: Settings, **_) -> d
         except Exception as e:
             _log(f"  [GitHubSearch] API failed: {e}")
     if len(results) < 3 and settings.tavily_api_key:
-        _log(f"  [GitHubSearch] Tavily fallback...")
+        _log("  [GitHubSearch] Tavily fallback...")
         try:
             tavily_gh = await _tavily_search(f"{idea} site:github.com", settings.tavily_api_key, depth="basic", max_results=5)
             for r in tavily_gh:
@@ -213,7 +216,7 @@ async def github_search_node(state: ResearchState, settings: Settings, **_) -> d
 
 
 async def producthunt_search_node(state: ResearchState, settings: Settings, **_) -> dict:
-    _log(f"  [ProductHunt] Searching...")
+    _log("  [ProductHunt] Searching...")
     if not settings.tavily_api_key:
         return {"producthunt_results": [], "progress_events": []}
     idea = state.get("cleaned_idea", state["idea"])
@@ -224,7 +227,8 @@ async def producthunt_search_node(state: ResearchState, settings: Settings, **_)
     raw = await asyncio.gather(*tasks, return_exceptions=True)
     results, seen = [], set()
     for batch in raw:
-        if isinstance(batch, Exception): continue
+        if isinstance(batch, Exception):
+            continue
         for r in batch:
             url = r.get("url", "")
             if "producthunt.com" in url and url not in seen:
@@ -241,14 +245,18 @@ async def producthunt_search_node(state: ResearchState, settings: Settings, **_)
 # ═══════════════════════════════════════
 
 async def deduplicator_node(state: ResearchState, **_) -> dict:
-    _log(f"  [Deduplicator] Processing...")
+    _log("  [Deduplicator] Processing...")
     tavily = state.get("tavily_results", [])
     cleaned = state.get("cleaned_idea", "")
     seen, unique, blocked_count = set(), [], 0
     for r in tavily:
         url = r.get("url", "").lower().rstrip("/")
-        if is_blocked(r.get("url", "")): blocked_count += 1; continue
-        if url and url not in seen: seen.add(url); unique.append(r)
+        if is_blocked(r.get("url", "")):
+            blocked_count += 1
+            continue
+        if url and url not in seen:
+            seen.add(url)
+            unique.append(r)
     unique.sort(key=lambda r: -url_score(r.get("url", "")))
     _log(f"    {len(tavily)} raw → {len(unique)} unique ({blocked_count} blocked)")
 
@@ -261,7 +269,7 @@ async def deduplicator_node(state: ResearchState, **_) -> dict:
     )
     _log(f"    {len(raw_sources)} filtered sources for frontend")
 
-    return {"tavily_results": unique, "raw_sources": raw_sources,
+    return {"filtered_results": unique, "raw_sources": raw_sources,
             "progress_events": [("progress", {"message": f"Filtered to {len(unique)} quality results", "pct": 40})]}
 
 
@@ -270,28 +278,33 @@ async def deduplicator_node(state: ResearchState, **_) -> dict:
 # ═══════════════════════════════════════
 
 async def deep_fetcher_node(state: ResearchState, settings: Settings, **_) -> dict:
-    _log(f"  [DeepFetcher] Fetching READMEs + backfill pages...")
-    tavily = state.get("tavily_results", [])
+    _log("  [DeepFetcher] Fetching READMEs + backfill pages...")
+    tavily = state.get("filtered_results", [])
     github = state.get("github_results", [])
     all_urls = [r.get("url", "") for r in tavily]
     for g in github:
         match = re.search(r'\(https://github\.com/[^)]+\)', g)
-        if match: all_urls.append(match.group(0).strip("()"))
+        if match:
+            all_urls.append(match.group(0).strip("()"))
 
     readmes = await fetch_github_readmes(all_urls, max_repos=8)
     needs_fetch, has_raw = [], 0
     for r in tavily:
         url, raw = r.get("url", ""), r.get("raw_content", "") or ""
-        if len(raw) > 200: has_raw += 1
-        elif url and not is_blocked(url) and "github.com" not in url: needs_fetch.append(url)
+        if len(raw) > 200:
+            has_raw += 1
+        elif url and not is_blocked(url) and not is_title_blocked(r.get("title", "")) and "github.com" not in url:
+            needs_fetch.append(url)
 
     _log(f"    {has_raw}/{len(tavily)} have raw content, {len(needs_fetch)} need fetch")
     deep_pages = {}
-    if needs_fetch: deep_pages = await deep_fetch_pages(needs_fetch, max_pages=10, race_target=5)
+    if needs_fetch:
+        deep_pages = await deep_fetch_pages(needs_fetch, max_pages=10, race_target=5)
 
     for r in tavily:
         url, raw = r.get("url", ""), r.get("raw_content", "") or ""
-        if len(raw) > 200 and url not in deep_pages and "github.com" not in url:
+        if (len(raw) > 200 and url not in deep_pages and "github.com" not in url
+                and not is_blocked(url) and not is_title_blocked(r.get("title", ""))):
             deep_pages[url] = raw[:3000]
 
     _log(f"  [DeepFetcher] {len(readmes)} READMEs, {len(deep_pages)} pages")
@@ -309,7 +322,7 @@ async def strategist_node(state: ResearchState, settings: Settings, client: Asyn
     cleaned = state.get("cleaned_idea", idea)
     category = state.get("category", "Not specified")
 
-    tavily = state.get("tavily_results", [])
+    tavily = state.get("filtered_results", [])
     readmes = state.get("github_readmes", {})
     ph = state.get("producthunt_results", [])
     deep_pages = state.get("deep_pages", {})
@@ -321,11 +334,11 @@ async def strategist_node(state: ResearchState, settings: Settings, client: Asyn
     confidence_note = ""
     if num_sources < 5:
         confidence_note = (
-            "\nCRITICAL RULES FOR THIS ANALYSIS:\n"
-            "- Write a confident, helpful analysis based on what you have.\n"
-            "- Do NOT mention limited data, thin coverage, or few results.\n"
-            "- Do NOT say 'based on limited results' or 'from what we could find.'\n"
-            "- The user must never know how many sources you read.\n"
+            "\nDATA COVERAGE:\n"
+            "- The search found only a few relevant results for this idea. "
+            "Say so briefly in the verdict, in one short sentence.\n"
+            "- Use only what is in the search data. Do not invent competitors "
+            "or details to fill the gap.\n"
         )
 
     try:
@@ -416,10 +429,17 @@ async def strategist_node(state: ResearchState, settings: Settings, client: Asyn
         _log(f"  [Strategist] Tokens: {u.prompt_tokens}+{u.completion_tokens}={u.total_tokens}")
 
     msg = completion.choices[0].message
-    if msg.refusal: return {"analysis": {"error": "Content restrictions."}, "progress_events": [("progress", {"message": "Blocked", "pct": 95})]}
-    if msg.parsed is None: return {"analysis": {"error": "Could not analyze."}, "progress_events": [("progress", {"message": "Empty", "pct": 95})]}
+    if msg.refusal:
+        return {"analysis": {"error": "Content restrictions."}, "progress_events": [("progress", {"message": "Blocked", "pct": 95})]}
+    if msg.parsed is None:
+        return {"analysis": {"error": "Could not analyze."}, "progress_events": [("progress", {"message": "Empty", "pct": 95})]}
 
     result = msg.parsed.model_dump()
+    competitors = result.get("competitors", [])
+    result["competitors"] = filter_grounded_competitors(competitors, context, state.get("raw_sources", []))
+    if len(result["competitors"]) < len(competitors):
+        _log(f"  [Strategist] Dropped {len(competitors) - len(result['competitors'])} competitor(s) not found in the search data")
+    result["sources_count"] = len(tavily)
     _log(f"  [Strategist] {len(result.get('competitors',[]))} competitors")
     return {"analysis": result, "rich_context": context,
             "progress_events": [("progress", {"message": "Analysis complete", "pct": 95})]}
@@ -455,21 +475,24 @@ def build_research_graph(settings: Settings, client: AsyncOpenAI) -> StateGraph:
 
 
 async def run_deep_research(idea: str, category: str | None, settings: Settings):
-    _log(f"  [Pipeline] Building 7-node pipeline (all mini)...")
+    _log("  [Pipeline] Building 7-node pipeline (all mini)...")
     client = AsyncOpenAI(api_key=settings.openai_api_key, timeout=60.0)
     compiled = build_research_graph(settings, client)
 
     initial_state: ResearchState = {
         "idea": idea, "cleaned_idea": "", "category": category or "Not specified",
-        "search_queries": [], "tavily_results": [], "github_results": [],
+        "search_queries": [], "tavily_results": [], "filtered_results": [], "github_results": [],
         "github_readmes": {}, "producthunt_results": [], "deep_pages": {},
         "rich_context": "", "analysis": {},
         "raw_sources": [], "status": "running",
-        "progress_events": [("progress", {"message": "Starting deep research...", "pct": 3})],
+        "progress_events": [],
     }
 
     start = time.time()
     final_analysis, final_raw_sources = {}, []
+
+    # astream only emits node updates, so the opening event is sent here.
+    yield ("progress", {"message": "Starting deep research...", "pct": 3})
 
     async for chunk in compiled.astream(initial_state):
         for node_name, update in chunk.items():

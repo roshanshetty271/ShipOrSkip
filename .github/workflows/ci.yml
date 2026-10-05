@@ -12,6 +12,12 @@ jobs:
     defaults:
       run:
         working-directory: frontend
+    env:
+      # Placeholders so pages that create the Supabase client can prerender.
+      # They are not credentials and nothing is fetched with them at build time.
+      NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-placeholder-anon-key
+      NEXT_PUBLIC_API_URL: http://localhost:8000
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -32,10 +38,12 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -r requirements.txt
-      - run: pip install ruff
+      - run: pip install ruff==0.16.10 pytest==9.1.1
       - run: ruff check src/
       - run: python -m py_compile src/main.py
       - run: python -m py_compile src/config.py
       - run: python -m py_compile src/research/router.py
       - run: python -m py_compile src/research/service.py
       - run: python -m py_compile src/research/agents/graph.py
+      # Tests fake Supabase, OpenAI, Tavily and GitHub; no secrets needed.
+      - run: python -m pytest -q tests

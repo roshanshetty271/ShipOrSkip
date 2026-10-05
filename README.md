@@ -19,16 +19,16 @@ Describe your project idea in plain English, and ShipOrSkip delivers:
 ## Two Analysis Modes
 
 ### ⚡ Fast Analysis
-Quick validation powered by AI web search and GPT synthesis. Get results in **~15 seconds**.
+Quick validation powered by AI web search and GPT synthesis.
 
 ### 🔬 Deep Research
-Comprehensive multi-source competitive intelligence across web search, GitHub, and product databases. Streams real-time progress as the AI researches your idea. Results in **~45-90 seconds**.
+Comprehensive multi-source competitive intelligence across web search, GitHub, and product databases. Streams real-time progress as the AI researches your idea.
 
 ## Built With
 
 - **Next.js 14** — React framework with App Router
 - **FastAPI** — High-performance async Python API
-- **OpenAI GPT-4o** — AI-powered analysis and synthesis
+- **OpenAI GPT-4.1 mini and GPT-4.1 nano** — mini runs the analysis, nano answers follow-up chat
 - **Tavily Search** — Real-time web search optimized for AI agents
 - **Supabase** — PostgreSQL database with authentication
 - **Tailwind CSS** — Utility-first styling

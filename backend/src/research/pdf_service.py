@@ -114,6 +114,11 @@ def generate_research_pdf(research: dict) -> bytes:
         pdf.set_font("Helvetica", "", 11)
         pdf.set_text_color(0, 0, 0)
         _write_text(pdf, 6, verdict)
+        saturation = _str(result.get("market_saturation")).lower()
+        if saturation in ("low", "medium", "high"):
+            pdf.set_font("Helvetica", "", 9)
+            pdf.set_text_color(120, 120, 120)
+            _write_cell(pdf, 6, f"Market saturation: {saturation}")
         pdf.ln(6)
 
     # ─── Competitors ───

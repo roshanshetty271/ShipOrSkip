@@ -11,7 +11,7 @@ ShipOrSkip Fetcher Service
 
 import asyncio
 import re
-from typing import Optional
+from urllib.parse import urlparse
 
 import httpx
 
@@ -44,7 +44,7 @@ DOMAIN_BLOCKLIST = {
     "forbes.com", "businessinsider.com", "entrepreneur.com",
     "inc.com", "fastcompany.com", "wired.com",
     # Aggregators / review sites
-    "g2.com", "capterra.com", "alternativeto.com",
+    "g2.com", "capterra.com", "alternativeto.com", "alternativeto.net",
     "slant.co", "sourceforge.net", "softwareadvice.com",
     "futurepedia.io", "pineapplebuilder.com", "bubble.io",
     "flowjam.com", "theresanaiforthat.com", "soft112.com",
@@ -72,6 +72,12 @@ DOMAIN_BLOCKLIST = {
     "ship-or-skip-peach.vercel.app",
 }
 
+# github.com/<first segment> paths that are site pages, not repositories
+GITHUB_NON_REPO_OWNERS = {
+    "topics", "search", "trending", "explore", "orgs",
+    "marketplace", "sponsors", "features", "collections",
+}
+
 HIGH_VALUE_DOMAINS = {
     "github.com", "producthunt.com", "news.ycombinator.com",
     "indiehackers.com", "devpost.com",
@@ -82,6 +88,7 @@ HIGH_VALUE_DOMAINS = {
 TITLE_BLOCKLIST_PATTERNS = [
     r"^best .+ alternatives",
     r"^\d+ best .+",
+    r"^the \d+ best ",
     r"^top \d+",
     r"^how to build",
     r"^how to create",
@@ -89,6 +96,7 @@ TITLE_BLOCKLIST_PATTERNS = [
     r"alternatives for",
     r"alternatives to",
     r"alternatives \(",
+    r" alternatives(:| \||$)",
     r"reviews?:.+pricing",
     r"reviews?:.+alternatives",
     r"ultimate guide",
@@ -99,10 +107,15 @@ TITLE_BLOCKLIST_PATTERNS = [
 ]
 
 
+def _domain_matches(domain: str, listed: str) -> bool:
+    """True when domain is the listed domain or one of its subdomains."""
+    return domain == listed or domain.endswith("." + listed)
+
+
 def is_blocked(url: str) -> bool:
     try:
         domain = url.split("//")[-1].split("/")[0].lower().replace("www.", "")
-        return any(domain.endswith(blocked) for blocked in DOMAIN_BLOCKLIST)
+        return any(_domain_matches(domain, blocked) for blocked in DOMAIN_BLOCKLIST)
     except Exception:
         return False
 
@@ -122,11 +135,13 @@ def url_score(url: str) -> int:
         return 0
 
     if "github.com" in domain and url.count("/") >= 4:
-        return 100
+        owner = url.split("//")[-1].split("/")[1].lower()
+        if owner not in GITHUB_NON_REPO_OWNERS:
+            return 100
     if "producthunt.com" in domain and ("/posts/" in url or "/products/" in url):
         return 95
     for hv in HIGH_VALUE_DOMAINS:
-        if domain.endswith(hv):
+        if _domain_matches(domain, hv):
             return 80
     if url.count("/") <= 3:
         return 60
@@ -191,7 +206,7 @@ def _extract_github_repos(urls: list[str]) -> list[tuple[str, str]]:
         if match:
             owner, repo = match.group(1), match.group(2)
             key = f"{owner}/{repo}".lower()
-            if key not in seen and owner not in ("topics", "search", "trending", "explore", "orgs"):
+            if key not in seen and owner.lower() not in GITHUB_NON_REPO_OWNERS:
                 seen.add(key)
                 repos.append((owner, repo))
     return repos
@@ -280,7 +295,8 @@ async def deep_fetch_pages(
             _log(f"    ✓ [{completed}/{race_target}] {url[:60]} ({len(content)} chars)")
             if completed >= race_target:
                 for t in tasks:
-                    if not t.done(): t.cancel()
+                    if not t.done():
+                        t.cancel()
                 _log(f"    Reached {race_target} — cancelled remaining tasks")
                 break
         else:
@@ -369,6 +385,9 @@ def assemble_deep_context(
             break
         gh_section.append(ph)
         chars_used += len(ph)
+        ph_url = re.search(r"\((https?://[^)]+)\)\s*$", ph)
+        if ph_url:
+            used_urls.add(ph_url.group(1).lower().rstrip("/"))
 
     if gh_section:
         sections.append("## GitHub Repos & Product Hunt Launches\n" + "\n".join(gh_section))
@@ -398,7 +417,7 @@ def assemble_deep_context(
         url = r.get("url", "")
         if url.lower().rstrip("/") in used_urls:
             continue
-        if is_title_blocked(title):
+        if is_blocked(url) or is_title_blocked(title):
             continue
         content = (r.get("content", "") or "")[:300]
         line = f"- {title} ({url}): {content}"
@@ -439,10 +458,50 @@ def assemble_fast_context(tavily_results: list[dict], max_chars: int = 6000) -> 
         snippet = r.get("content", "") or ""
         content = raw[:500] if len(raw) > 100 else snippet[:300]
         line = f"- {title} ({url})\n  {content}"
-        if chars_used + len(line) > max_chars: break
+        if chars_used + len(line) > max_chars:
+            break
         lines.append(line)
         chars_used += len(line)
 
     if not lines:
         return "No search results available."
     return "\n\n".join(lines)
+
+
+# ═══════════════════════════════════════
+# Grounding check — drop competitors the search data never mentioned
+# ═══════════════════════════════════════
+
+def _url_host(url: str) -> str:
+    try:
+        host = urlparse(url if "//" in url else f"//{url}").hostname or ""
+    except ValueError:
+        return ""
+    return host.lower().removeprefix("www.")
+
+
+def filter_grounded_competitors(
+    competitors: list[dict], context: str, raw_sources: list[dict],
+) -> list[dict]:
+    """Keep only competitors that can be traced to the search data.
+
+    A competitor stays when its URL's host (without www.) appears in the
+    context or among the raw source URLs, or when its name appears in the
+    context (case-insensitive).
+    """
+    haystack = context.lower()
+    source_hosts = {_url_host(s.get("url", "") or "") for s in raw_sources}
+    source_hosts.discard("")
+
+    kept = []
+    for c in competitors:
+        host = _url_host(c.get("url", "") or "")
+        name = (c.get("name", "") or "").strip().lower()
+        host_found = bool(host) and (
+            host in source_hosts
+            or re.search(r"(?<![a-z0-9-])" + re.escape(host) + r"(?![a-z0-9-])", haystack) is not None
+        )
+        name_found = bool(name) and name in haystack
+        if host_found or name_found:
+            kept.append(c)
+    return kept

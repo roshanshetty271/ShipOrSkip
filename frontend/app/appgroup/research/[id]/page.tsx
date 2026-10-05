@@ -291,6 +291,9 @@ export default function ResearchDetailPage() {
   const buildPlan = (result.build_plan || []) as string[];
   const verdict = result.verdict || "";
   const rawSources = (result.raw_sources || []) as RawSource[];
+  const sourcesCount = typeof result.sources_count === "number" ? result.sources_count : null;
+  const saturationRaw = typeof result.market_saturation === "string" ? result.market_saturation.toLowerCase() : "";
+  const marketSaturation = ["low", "medium", "high"].includes(saturationRaw) ? saturationRaw : null;
 
   const extraSources = (() => {
     const names = new Set(competitors.map(c => c.name?.toLowerCase().trim()));
@@ -320,7 +323,7 @@ export default function ResearchDetailPage() {
                   ? <Search className="w-3 h-3 shrink-0" />
                   : <Zap className="w-3 h-3 shrink-0" />}
                 <span>{research.analysis_type}</span>
-                <span className="text-border-strong">//</span>
+                <span className="text-border-strong">{"//"}</span>
                 <span>{new Date(research.created_at).toLocaleDateString()}</span>
               </div>
             </div>
@@ -380,11 +383,23 @@ export default function ResearchDetailPage() {
             {/* Verdict */}
             {verdict && (
               <section className="brutal-border-b bg-white px-6 sm:px-10 py-8 sm:py-10">
-                <p className="text-[10px] font-mono text-text-tertiary uppercase tracking-[0.2em] mb-1">Verdict</p>
+                <div className="flex flex-wrap items-center gap-3 mb-1">
+                  <p className="text-[10px] font-mono text-text-tertiary uppercase tracking-[0.2em]">Verdict</p>
+                  {marketSaturation && (
+                    <span className="px-2 py-0.5 text-[9px] uppercase font-mono tracking-[0.15em] border border-border-strong text-ink-900">
+                      {marketSaturation} saturation
+                    </span>
+                  )}
+                </div>
                 <div className="w-12 h-[2px] bg-ink-900 mb-5" />
                 <p className="text-base sm:text-lg leading-relaxed text-ink-900 max-w-4xl break-words">
                   {verdict}
                 </p>
+                {sourcesCount !== null && (
+                  <p className="text-[10px] font-mono text-text-tertiary uppercase tracking-[0.2em] mt-4">
+                    Based on {sourcesCount} {sourcesCount === 1 ? "source" : "sources"}
+                  </p>
+                )}
               </section>
             )}
 
@@ -397,20 +412,22 @@ export default function ResearchDetailPage() {
                     <p className="text-[10px] font-mono text-text-tertiary mt-1">{competitors.length} found</p>
                   </div>
                   <div className="md:col-span-9 divide-y divide-border-strong bg-white">
-                    {competitors.map((c, i) => (
+                    {competitors.map((c, i) => {
+                      const threat = c.threat_level?.toLowerCase();
+                      return (
                       <div key={i} className="px-6 sm:px-10 py-6 sm:py-8 hover:bg-background/50 overflow-hidden">
                         <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-3 flex-wrap mb-2">
                               <h3 className="font-serif text-xl sm:text-2xl leading-tight">{c.name}</h3>
-                              {c.threat_level && (
-                                <span className={`px-2 py-0.5 text-[9px] uppercase font-mono tracking-[0.15em] font-medium whitespace-nowrap ${c.threat_level === "high"
+                              {threat && (
+                                <span className={`px-2 py-0.5 text-[9px] uppercase font-mono tracking-[0.15em] font-medium whitespace-nowrap ${threat === "high"
                                     ? "bg-accent text-white"
-                                    : c.threat_level === "medium"
+                                    : threat === "medium"
                                       ? "bg-yellow-400 text-ink-900"
                                       : "bg-accent-green text-white"
                                   }`}>
-                                  {c.threat_level} threat
+                                  {threat} threat
                                 </span>
                               )}
                             </div>
@@ -435,7 +452,8 @@ export default function ResearchDetailPage() {
                           )}
                         </div>
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               </section>
