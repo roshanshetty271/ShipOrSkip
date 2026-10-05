@@ -24,7 +24,7 @@ from fastapi.responses import StreamingResponse, Response
 from src.middleware import limiter
 from src.research.schemas import AnalyzeRequest
 from pydantic import BaseModel, Field
-from src.research.service import fast_analysis, deep_research_stream
+from src.research.service import AnalysisError, fast_analysis, deep_research_stream
 from src.research.chat_service import chat_with_research
 from src.research.pdf_service import generate_research_pdf
 from src.auth.dependencies import get_current_user, require_auth
@@ -109,6 +109,7 @@ def _parse_ts(iso_str: str) -> datetime:
 
 def _get_rolling_usage(user_id: str, analysis_type: str, limit: int) -> dict:
     """Count analysis runs in the last 24h rolling window.
+    Failed runs are not counted; processing and completed runs are.
     Returns {used, remaining, next_available_at}."""
     sb = get_supabase_client()
     if not sb:
@@ -117,6 +118,7 @@ def _get_rolling_usage(user_id: str, analysis_type: str, limit: int) -> dict:
         window_start = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
         result = sb.table("research").select("created_at") \
             .eq("user_id", user_id).eq("analysis_type", analysis_type) \
+            .neq("status", "failed") \
             .gte("created_at", window_start) \
             .order("created_at").execute()
 
@@ -375,6 +377,9 @@ async def analyze_fast(
         result["limits"] = remaining
 
         return result
+    except AnalysisError as e:
+        # Nothing was produced, so the run is neither saved nor counted.
+        raise HTTPException(status_code=e.status_code, detail=e.message)
     except HTTPException:
         raise
     except Exception:
@@ -418,8 +423,6 @@ async def analyze_deep(
                 if event_type == "done":
                     final_result = data.get("report", data)
                     # Attach remaining counts to the done event
-                    if not user:
-                        _increment_anon(request, "deep")
                     remaining = (await _get_signed_in_remaining(user)) if user else _get_anon_remaining(request)
                     data["limits"] = remaining
                 yield f"event: {event_type}\ndata: {json.dumps(data)}\n\n"

@@ -33,6 +33,19 @@ def _log(msg: str):
     print(f"[ShipOrSkip] {msg}", flush=True)
 
 
+class AnalysisError(Exception):
+    """A fast analysis that produced no usable result.
+
+    The router turns this into an HTTP error without saving the run or
+    counting it against the caller's limits.
+    """
+
+    def __init__(self, message: str, status_code: int):
+        super().__init__(message)
+        self.message = message
+        self.status_code = status_code
+
+
 # ═══════════════════════════════════════
 # Query Cleaning
 # ═══════════════════════════════════════
@@ -149,10 +162,10 @@ async def fast_analysis(idea: str, category: str | None, settings: Settings) -> 
         )
     except RateLimitError:
         _log("  [OpenAI] RATE LIMITED")
-        return _empty("AI service is busy. Wait a moment and try again.")
+        raise AnalysisError("AI service is busy. Wait a moment and try again.", 503)
     except (APITimeoutError, APIError) as e:
         _log(f"  [OpenAI] ERROR: {e}")
-        return _empty("AI service error. Try again.")
+        raise AnalysisError("AI service error. Try again.", 503)
 
     if completion.usage:
         u = completion.usage
@@ -161,10 +174,10 @@ async def fast_analysis(idea: str, category: str | None, settings: Settings) -> 
     msg = completion.choices[0].message
     if msg.refusal:
         _log(f"  [OpenAI] REFUSED: {msg.refusal}")
-        return _empty("Could not analyze. Try rephrasing.")
+        raise AnalysisError("Could not analyze. Try rephrasing.", 422)
     if msg.parsed is None:
         _log(f"  [OpenAI] Parsed=None")
-        return _empty("Could not analyze. Try rephrasing.")
+        raise AnalysisError("Could not analyze. Try rephrasing.", 422)
 
     result = msg.parsed.model_dump()
     result["raw_sources"] = raw_sources
@@ -334,12 +347,3 @@ def _user_prompt(original_idea: str, cleaned_idea: str, category: str | None, co
         "Write the verdict like you're telling a friend whether to build this or not. "
         "No corporate speak. No hedging. Commit to a take."
     )
-
-
-def _empty(verdict: str) -> dict:
-    return {
-        "verdict": verdict,
-        "competitors": [], "pros": [], "cons": [],
-        "gaps": [], "build_plan": [], "market_saturation": "unknown",
-        "raw_sources": [],
-    }
